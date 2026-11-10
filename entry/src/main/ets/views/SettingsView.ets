@@ -2,7 +2,7 @@ import { app } from '../store/AppState'
 import { AppPrefs } from '../store/ServerStore'
 import { AgentInfo, QuickMessage } from '../model/Models'
 import { errorText } from '../net/ApiError'
-import { JObj, bool, str } from '../common/Json'
+import { JObj, arr, asObj, bool, str } from '../common/Json'
 import { L, isZh, setZh } from '../common/I18n'
 import { Card, Divider1, IconButton, NavRow, SectionHeader, sym, toast, AgentAvatar } from '../components/Common'
 import { ServerEditor, ServerList } from './ServersView'
@@ -13,7 +13,7 @@ export struct AgentsSettings {
 
   async toggle(a: AgentInfo, on: boolean): Promise<void> {
     try {
-      await app.api!.setAgentEnabled(a.agentType, on)
+      await app.api!.setAgentEnabled(a, on)
       app.agents = await app.api!.agents()
     } catch (e) {
       toast(errorText(e))
@@ -24,8 +24,17 @@ export struct AgentsSettings {
     this.busy = a.agentType
     try {
       const r = await app.api!.preflight(a.agentType)
-      const ok = bool(r, 'passed', bool(r, 'ok', true))
-      toast(ok ? L(`${a.name} is ready`, `${a.name} 可用`) : str(r, 'message', L('Check failed', '检查未通过')))
+      const ok = bool(r, 'passed', true)
+      let msg = L('Check failed', '检查未通过')
+      for (const c of arr(r, 'checks')) {
+        const co = asObj(c)
+        const st = str(co, 'status')
+        if (st === 'fail') {
+          msg = `${str(co, 'label')}: ${str(co, 'message')}`
+          break
+        }
+      }
+      toast(ok ? L(`${a.name} is ready`, `${a.name} 可用`) : msg)
     } catch (e) {
       toast(errorText(e))
     } finally {

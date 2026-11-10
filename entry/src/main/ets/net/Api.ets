@@ -100,7 +100,7 @@ export class Api {
   async createChatConversation(agentType: string, title?: string, paperId?: string): Promise<number[]> {
     const o = asObj(await this.c.send('create_chat_conversation',
       body({ 'agentType': agentType, 'title': title, 'academicPaperId': paperId })))
-    return [num(o, 'conversation_id'), num(o, 'folder_id')]
+    return [num(o, 'conversationId', num(o, 'conversation_id')), num(o, 'folderId', num(o, 'folder_id'))]
   }
 
   async setPinned(id: number, pinned: boolean): Promise<void> {
@@ -226,8 +226,11 @@ export class Api {
     await this.c.send('submit_session_feedback', { 'connectionId': connectionId, 'text': text })
   }
 
-  async setAgentEnabled(agentType: string, enabled: boolean): Promise<void> {
-    await this.c.send('acp_update_agent_env', { 'agentType': agentType, 'enabled': enabled })
+  /** `env` is required and stored as given, so resend the agent's current env to avoid wiping it. */
+  async setAgentEnabled(a: AgentInfo, enabled: boolean): Promise<void> {
+    await this.c.send('acp_update_agent_env', body({
+      'agentType': a.agentType, 'enabled': enabled, 'env': a.env, 'modelProviderId': a.modelProviderId
+    }))
   }
 
   async preflight(agentType: string): Promise<JObj> {
@@ -267,8 +270,8 @@ export class Api {
       const linked = new Set<string>()
       for (const s of statuses) {
         const o = asObj(s)
-        if (str(o, 'agent_type') === agentType && str(o, 'state') === 'linked_to_codeg') {
-          linked.add(str(o, 'expert_id'))
+        if (str(o, 'agentType', str(o, 'agent_type')) === agentType && str(o, 'state') === 'linked_to_codeg') {
+          linked.add(str(o, 'expertId', str(o, 'expert_id')))
         }
       }
       const out: ExpertSkill[] = []
@@ -297,7 +300,7 @@ export class Api {
     u.path = str(o, 'path')
     u.name = str(o, 'name', f.name)
     u.size = num(o, 'size')
-    u.mimeType = str(o, 'mime_type', f.mimeType)
+    u.mimeType = str(o, 'mimeType', str(o, 'mime_type', f.mimeType))
     return u
   }
 

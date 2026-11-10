@@ -207,6 +207,8 @@ export class AgentInfo {
   sortOrder: number = 0
   installedVersion?: string
   distributionType?: string
+  env: JObj = {} as JObj
+  modelProviderId?: number
 
   static from(v: Object): AgentInfo {
     const o = asObj(v)
@@ -219,6 +221,8 @@ export class AgentInfo {
     a.sortOrder = num(o, 'sort_order')
     a.installedVersion = optStr(o, 'installed_version')
     a.distributionType = optStr(o, 'distribution_type')
+    a.env = obj(o, 'env')
+    a.modelProviderId = optNum(o, 'model_provider_id')
     return a
   }
 }
@@ -235,8 +239,8 @@ export class DirEntry {
     const e = new DirEntry()
     e.name = str(o, 'name')
     e.path = str(o, 'path')
-    e.isDir = bool(o, 'is_dir', true)
-    e.hasChildren = bool(o, 'has_children')
+    e.isDir = bool(o, 'isDir', bool(o, 'is_dir', true))
+    e.hasChildren = bool(o, 'hasChildren', bool(o, 'has_children'))
     e.size = optNum(o, 'size')
     return e
   }
@@ -366,8 +370,9 @@ export class GitWorktree {
     w.branch = optStr(o, 'branch')
     w.head = str(o, 'head', str(o, 'commit'))
     w.isMain = bool(o, 'is_main', bool(o, 'is_main_worktree'))
-    w.locked = bool(o, 'locked', bool(o, 'is_locked'))
-    w.prunable = bool(o, 'prunable', bool(o, 'is_prunable'))
+    // Server sends Option<String>: present (even empty) means set.
+    w.locked = typeof o['locked'] === 'string' || bool(o, 'locked')
+    w.prunable = typeof o['prunable'] === 'string' || bool(o, 'prunable')
     return w
   }
 }

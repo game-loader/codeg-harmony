@@ -54,10 +54,7 @@ export class EventSocket {
     ws.on('error', (err: BusinessError) => {
       this.finish(err?.message ?? 'error')
     })
-    ws.connect(this.client.wsUrl, {
-      protocol: this.client.wsProtocol,
-      header: { 'Sec-WebSocket-Protocol': this.client.wsProtocol }
-    }).catch((e: BusinessError) => {
+    ws.connect(this.client.wsUrl, { protocol: this.client.wsProtocol }).catch((e: BusinessError) => {
       this.finish(e?.message ?? 'connect failed')
     })
   }
