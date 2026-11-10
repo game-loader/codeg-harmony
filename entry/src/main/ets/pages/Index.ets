@@ -50,6 +50,7 @@ struct Index {
   @Local newPaper: string = ''
   @Local langFlip: boolean = false
   @Local sessionFromProject: boolean = false
+  @Local lastCrash: string = ''
 
   sections(): Section[] {
     return [
@@ -62,6 +63,7 @@ struct Index {
   }
 
   aboutToAppear(): void {
+    this.lastCrash = Prefs.get('last_crash')
     this.applyTheme()
     LinkRouter.handler = (href: string, root: string) => this.openLink(href, root)
   }
@@ -404,8 +406,34 @@ struct Index {
     }
   }
 
+  @Builder
+  crashBanner() {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        SymbolGlyph(sym('exclamationmark_triangle')).fontSize(16).fontColor([$r('app.color.danger')])
+        Text(L('The app crashed last time. Long-press to copy the details and send them to the developer.',
+          '上次运行时崩溃了，长按可复制详情发给开发者。')).fontSize(13).fontColor($r('app.color.text')).layoutWeight(1)
+        SymbolGlyph(sym('xmark')).fontSize(15).fontColor([$r('app.color.text3')]).onClick(() => {
+          this.lastCrash = ''
+          Prefs.set('last_crash', '')
+        })
+      }.width('100%')
+      Scroll() {
+        Text(this.lastCrash).fontSize(11).fontFamily('monospace').fontColor($r('app.color.text2'))
+          .copyOption(CopyOptions.LocalDevice)
+      }.constraintSize({ maxHeight: 160 }).width('100%').align(Alignment.TopStart)
+    }
+    .padding(12)
+    .margin({ left: 12, right: 12, top: layout.topInset + 4 })
+    .borderRadius(12)
+    .backgroundColor($r('app.color.danger_soft'))
+  }
+
   build() {
     Column() {
+      if (this.lastCrash.length > 0) {
+        this.crashBanner()
+      }
       // Toggling rebuilds the tree so language changes apply everywhere.
       if (this.langFlip) {
         this.content()

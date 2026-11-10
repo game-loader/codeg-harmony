@@ -171,7 +171,7 @@ export struct TerminalView {
       }
       this.lastSeq = num(s, 'seq', -1)
       this.generation = num(s, 'generation', -1)
-      this.controller.runJavaScript('termReset()')
+      this.js('termReset()')
       this.write(str(s, 'data'))
       this.status = bool(s, 'alive', true) ? 'running' : 'exited'
     } catch (e) {
@@ -202,6 +202,16 @@ export struct TerminalView {
     }
   }
 
+  /** WebviewController throws 17100001 until the Web component is attached. */
+  js(script: string): void {
+    try {
+      this.controller.runJavaScript(script).catch(() => {
+      })
+    } catch (e) {
+      // Not attached yet.
+    }
+  }
+
   write(data: string): void {
     if (data.length === 0) {
       return
@@ -210,8 +220,7 @@ export struct TerminalView {
       this.pending.push(data)
       return
     }
-    this.controller.runJavaScript(`termWrite(${JSON.stringify(data)})`).catch(() => {
-    })
+    this.js(`termWrite(${JSON.stringify(data)})`)
   }
 
   flush(): void {
@@ -238,7 +247,7 @@ export struct TerminalView {
     this.exited = false
     this.lastSeq = -1
     this.status = 'starting'
-    this.controller.runJavaScript('termReset()')
+    this.js('termReset()')
     this.maybeSpawn()
   }
 
@@ -265,7 +274,7 @@ export struct TerminalView {
         .layoutWeight(1)
         .width('100%')
         .onClick(() => {
-          this.controller.runJavaScript('termFocus()')
+          this.js('termFocus()')
         })
 
       Scroll() {

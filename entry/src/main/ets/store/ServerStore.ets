@@ -193,6 +193,15 @@ export class AppPrefs {
     AppPrefs.p.flush()
   }
 
+  /** Writes and flushes synchronously; used from the crash handler. */
+  static setSync(k: string, v: string): void {
+    if (AppPrefs.p === null) {
+      return
+    }
+    AppPrefs.p.putSync(k, v)
+    AppPrefs.p.flushSync()
+  }
+
   static deviceId(): string {
     let id = AppPrefs.get('device_id')
     if (id.length === 0) {

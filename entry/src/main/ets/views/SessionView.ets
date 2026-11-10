@@ -115,9 +115,22 @@ export struct SessionView {
   @Local showMenu: boolean = false
   private scroller: ListScroller = new ListScroller()
 
+  /**
+   * The scroller is only bound once the transcript List exists; while the
+   * conversation is loading a spinner is shown instead and scrollEdge throws
+   * BusinessError 100004, which would crash the app.
+   */
+  toBottom(): void {
+    try {
+      this.scroller.scrollEdge(Edge.Bottom)
+    } catch (e) {
+      // Not bound yet.
+    }
+  }
+
   aboutToAppear(): void {
     setTimeout((): void => {
-      this.scroller.scrollEdge(Edge.Bottom)
+      this.toBottom()
     }, 80)
   }
 
@@ -127,7 +140,7 @@ export struct SessionView {
 
   scrollDown(): void {
     if (this.stickToBottom) {
-      this.scroller.scrollEdge(Edge.Bottom)
+      this.toBottom()
     }
   }
 
@@ -333,9 +346,18 @@ export struct SessionView {
           return { offsetRemain: offset }
         })
         .onDidScroll(() => {
-          if (this.scroller.isAtEnd()) {
-            this.stickToBottom = true
+          try {
+            if (this.scroller.isAtEnd()) {
+              this.stickToBottom = true
+            }
+          } catch (e) {
+            // Not bound yet.
           }
+        })
+        .onAppear(() => {
+          setTimeout((): void => {
+            this.toBottom()
+          }, 30)
         })
         .onAreaChange(() => this.scrollDown())
         .onSizeChange(() => this.scrollDown())
@@ -349,7 +371,7 @@ export struct SessionView {
           .shadow({ radius: 12, color: '#22000000' })
           .onClick(() => {
             this.stickToBottom = true
-            this.scroller.scrollEdge(Edge.Bottom)
+            this.toBottom()
           })
         }
       }
