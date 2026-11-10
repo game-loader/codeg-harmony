@@ -12,4 +12,11 @@ node "$HVIGOR_HOME/node_modules/@ohos/hvigor/bin/hvigor.js" --mode module -p mod
 status=${PIPESTATUS[0]}
 set -e
 grep -q "BUILD SUCCESSFUL" "$ROOT/.build.log" || exit "${status:-1}"
+# `$$` two-way binding is only compiled on built-in components; on a custom
+# component it reaches the device verbatim and throws ReferenceError on render.
+OUT="$ROOT/entry/build/default/cache/default/default@CompileArkTS/esmodule/${MODE:-debug}"
+if grep -rnF '$$this' "$OUT" --include=*.ts --include=*.js; then
+  echo "error: uncompiled \$\$ binding in compiled output (see lines above)" >&2
+  exit 1
+fi
 ls -la "$ROOT/entry/build/default/outputs/default/"

@@ -115,7 +115,6 @@ export struct SessionView {
   }
   @Local stickToBottom: boolean = true
   @Local windowSize: number = WINDOW_STEP
-  @Local showMenu: boolean = false
   private scroller: ListScroller = new ListScroller()
 
   /**
@@ -188,10 +187,13 @@ export struct SessionView {
       if (this.ctrl !== null && this.ctrl.folder !== null && !this.ctrl.folder.isChat) {
         IconButton({ icon: 'folder', sz: 19, onTap: () => this.onOpenFiles() })
       }
-      IconButton({ icon: 'dot_grid_1x2', sz: 19, onTap: () => {
-        this.showMenu = true
-      } })
-        .bindMenu($$this.showMenu, this.sessionMenu())
+      // A built-in Button, not IconButton: `$$` two-way binding is only compiled
+      // on built-in components, and bindMenu(builder) opens on tap by itself.
+      Button({ type: ButtonType.Circle, stateEffect: true }) {
+        SymbolGlyph(sym('dot_grid_1x2')).fontSize(19).fontColor([$r('app.color.text2')])
+      }
+      .width(40).height(40).backgroundColor(Color.Transparent)
+      .bindMenu(this.sessionMenu())
     }
     .padding({ left: 8, right: 8, top: 6, bottom: 6 })
     .width('100%')
