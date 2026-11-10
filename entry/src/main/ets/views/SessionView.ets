@@ -12,6 +12,8 @@ import { app } from '../store/AppState'
 import { L, relativeTime } from '../common/I18n'
 import { agentName, STATUSES, statusLabel } from '../common/Agents'
 
+const WINDOW_STEP = 120
+
 @ComponentV2
 export struct ThinkingBlock {
   @Param text: string = ''
@@ -112,6 +114,7 @@ export struct SessionView {
   @Event onOpenFiles: () => void = () => {
   }
   @Local stickToBottom: boolean = true
+  @Local windowSize: number = WINDOW_STEP
   @Local showMenu: boolean = false
   private scroller: ListScroller = new ListScroller()
 
@@ -132,6 +135,17 @@ export struct SessionView {
     setTimeout((): void => {
       this.toBottom()
     }, 80)
+  }
+
+  @Monitor('ctrl')
+  onCtrlChange(): void {
+    this.windowSize = WINDOW_STEP
+    this.stickToBottom = true
+  }
+
+  visibleItems(): TItem[] {
+    const all = this.ctrl?.items ?? []
+    return all.length > this.windowSize ? all.slice(all.length - this.windowSize) : all
   }
 
   rootPath(): string {
@@ -263,7 +277,21 @@ export struct SessionView {
         .width('100%').height('100%').justifyContent(FlexAlign.Center).padding(30)
       } else {
         List({ scroller: this.scroller, space: 14 }) {
-          ForEach(this.ctrl.items, (it: TItem) => {
+          // Long sessions have thousands of items; building them all at once blocks
+          // the UI thread long enough for the system to kill the app. Render the
+          // latest window and page earlier items in on demand.
+          if (this.ctrl.items.length > this.windowSize) {
+            ListItem() {
+              Text(L(`Show earlier messages (${this.ctrl.items.length - this.windowSize})`,
+                `显示更早的消息（${this.ctrl.items.length - this.windowSize}）`))
+                .fontSize(13).fontColor($r('app.color.accent')).padding(10)
+                .onClick(() => {
+                  this.stickToBottom = false
+                  this.windowSize += WINDOW_STEP
+                })
+            }
+          }
+          ForEach(this.visibleItems(), (it: TItem) => {
             ListItem() {
               this.item(it)
             }

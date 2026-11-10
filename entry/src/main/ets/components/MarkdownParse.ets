@@ -75,7 +75,22 @@ function splitRow(line: string): string[] {
   if (s.endsWith('|') && !s.endsWith('\\|')) {
     s = s.substring(0, s.length - 1)
   }
-  return s.split(new RegExp('(?<!\\\\)\\|')).map((c: string) => c.trim().replace(new RegExp('\\\\\\|', 'g'), '|'))
+  // Split on unescaped pipes without regex lookbehind.
+  const cells: string[] = []
+  let cur = ''
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && s[i + 1] === '|') {
+      cur += '|'
+      i++
+    } else if (s[i] === '|') {
+      cells.push(cur.trim())
+      cur = ''
+    } else {
+      cur += s[i]
+    }
+  }
+  cells.push(cur.trim())
+  return cells
 }
 
 /** Block-level markdown parser covering what agents emit in practice. */

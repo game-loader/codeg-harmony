@@ -57,7 +57,9 @@ export class CodegClient {
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: t.connect,
         readTimeout: t.read,
-        usingCache: false
+        usingCache: false,
+        // Default cap is 5 MB; long conversations are several times that.
+        maxLimit: 100 * 1024 * 1024
       })
       const text = typeof res.result === 'string' ? res.result as string : ''
       if (res.responseCode < 200 || res.responseCode >= 300) {
