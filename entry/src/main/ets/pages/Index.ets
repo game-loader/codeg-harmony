@@ -18,6 +18,7 @@ import { MachinesView } from '../views/MachinesView'
 import { AcademicView } from '../views/AcademicView'
 import { SettingsView } from '../views/SettingsView'
 import { NewSessionSheet } from '../views/NewSessionSheet'
+import { MathHost } from '../components/MathRenderer'
 
 class Section {
   id: string
@@ -446,6 +447,8 @@ struct Index {
       } else {
         this.content()
       }
+      // Hidden MathJax page that rasterises formulas; out of layout flow.
+      MathHost().position({ x: -20, y: -20 })
     }
     .width('100%')
     .height('100%')

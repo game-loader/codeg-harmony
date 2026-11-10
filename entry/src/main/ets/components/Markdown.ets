@@ -3,6 +3,23 @@ import { MdBlock, MdKind, MdListItem, MdSpan, SpanKind, decodeFileHref, fileIcon
 import { LinkRouter } from './Links'
 import { sym, toast } from './Common'
 import { L } from '../common/I18n'
+import { math, MathImage } from './MathRenderer'
+import { layout } from '../store/Layout'
+
+/** Re-evaluated whenever a formula finishes rendering (reads math.version). */
+function inlineSpans(text: string, v: number): MdSpan[] {
+  return v >= 0 ? parseInline(text) : []
+}
+
+function spanKey(s: MdSpan, i: number, size: number): string {
+  const ready = s.kind === SpanKind.Math && math.has(s.text, false, layout.inkColor, size)
+  return `${i}-${s.kind}-${s.text}-${ready}`
+}
+
+function inlineMath(tex: string, size: number): MathImage | undefined {
+  const m = math.get(tex, false, layout.inkColor, size)
+  return m !== undefined && !m.failed ? m : undefined
+}
 
 export function copyText(s: string): void {
   try {
@@ -22,7 +39,7 @@ function baseName(p: string): string {
 @Builder
 export function InlineText(text: string, size: number, color: ResourceColor, weight: FontWeight, root: string) {
   Text() {
-    ForEach(parseInline(text), (s: MdSpan) => {
+    ForEach(inlineSpans(text, math.version), (s: MdSpan) => {
       if (s.kind === SpanKind.Code) {
         Span(` ${s.text} `)
           .fontFamily('monospace')
@@ -30,7 +47,15 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
           .fontColor($r('app.color.code_text'))
           .textBackgroundStyle({ color: $r('app.color.code_bg'), radius: 5 })
       } else if (s.kind === SpanKind.Math) {
-        Span(s.text).fontFamily('serif').fontStyle(FontStyle.Italic).fontColor($r('app.color.accent2'))
+        if (inlineMath(s.text, size) !== undefined) {
+          ImageSpan(inlineMath(s.text, size)?.png ?? '')
+            .width(inlineMath(s.text, size)?.w ?? 0)
+            .height(inlineMath(s.text, size)?.h ?? 0)
+            .verticalAlign(ImageSpanAlignment.CENTER)
+            .objectFit(ImageFit.Fill)
+        } else {
+          Span(s.text).fontFamily('serif').fontStyle(FontStyle.Italic).fontColor($r('app.color.accent2'))
+        }
       } else if (s.kind === SpanKind.Bold) {
         Span(s.text).fontWeight(FontWeight.Bold)
       } else if (s.kind === SpanKind.Italic) {
@@ -57,7 +82,7 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
       } else {
         Span(s.text)
       }
-    }, (s: MdSpan, i: number) => `${i}-${s.kind}-${s.text}`)
+    }, (s: MdSpan, i: number) => spanKey(s, i, size))
   }
   .fontSize(size)
   .fontColor(color)
@@ -150,12 +175,7 @@ export struct MarkdownView {
     } else if (b.kind === MdKind.Code) {
       CodeBlock({ code: b.text, lang: b.lang, maxLines: 40 })
     } else if (b.kind === MdKind.Math) {
-      Scroll() {
-        Text(b.text).fontFamily('serif').fontStyle(FontStyle.Italic).fontSize(this.fontSize)
-          .fontColor($r('app.color.accent2')).copyOption(CopyOptions.LocalDevice).padding(12)
-      }
-      .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
-      .backgroundColor($r('app.color.surface2')).borderRadius(10)
+      MathBlock({ tex: b.text, fontSize: this.fontSize + 1 })
     } else if (b.kind === MdKind.Quote) {
       Row() {
         Column().width(3).height('100%').backgroundColor($r('app.color.accent')).borderRadius(2)
@@ -215,6 +235,47 @@ export struct MarkdownView {
       .scrollBar(BarState.Off)
       .align(Alignment.TopStart)
       .width('100%')
+    }
+  }
+}
+
+/** Display formula: rendered image when ready, TeX source until then or on error. */
+@ComponentV2
+export struct MathBlock {
+  @Param tex: string = ''
+  @Param fontSize: number = 16
+
+  image(): MathImage | undefined {
+    const v = math.version
+    const m = v >= 0 ? math.get(this.tex, true, layout.inkColor, this.fontSize) : undefined
+    return m !== undefined && !m.failed ? m : undefined
+  }
+
+  build() {
+    Scroll() {
+      if (this.image() !== undefined) {
+        Image(this.image()?.png ?? '')
+          .width(this.image()?.w ?? 0)
+          .height(this.image()?.h ?? 0)
+          .objectFit(ImageFit.Fill)
+          .draggable(false)
+          .margin({ top: 6, bottom: 6 })
+      } else {
+        Text(this.tex).fontFamily('serif').fontStyle(FontStyle.Italic).fontSize(this.fontSize - 1)
+          .fontColor($r('app.color.accent2')).copyOption(CopyOptions.LocalDevice).padding(12)
+      }
+    }
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .align(Alignment.Center)
+    .bindContextMenu(this.menu(), ResponseType.LongPress)
+  }
+
+  @Builder
+  menu() {
+    Menu() {
+      MenuItem({ content: L('Copy TeX', '复制 TeX') }).onClick(() => copyText(this.tex))
     }
   }
 }

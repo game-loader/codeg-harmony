@@ -1,0 +1,50 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<script>
+// Headless TeX renderer. Native side calls renderOne(); results come back through
+// the injected `codegMath` bridge as a PNG data URL plus size in CSS px (= vp).
+window.MathJax = {
+  loader: { load: [] },
+  tex: { packages: { '[+]': ['ams', 'newcommand', 'boldsymbol', 'mathtools', 'cancel', 'color'] } },
+  svg: { fontCache: 'none' },
+  startup: {
+    typeset: false,
+    ready: function () {
+      MathJax.startup.defaultReady();
+      MathJax.startup.promise.then(function () {
+        window.mathReady = true;
+        if (window.codegMath) codegMath.ready();
+      });
+    }
+  }
+};
+function exOf(v) { var n = parseFloat(v || '0'); return isNaN(n) ? 0 : n; }
+function renderOne(id, tex, display, color, em, scale) {
+  try {
+    var node = MathJax.tex2svg(tex, { display: display, em: em, ex: em / 2, containerWidth: 4000 });
+    var svg = node.querySelector('svg');
+    if (!svg || node.querySelector('[data-mml-node="merror"]')) { codegMath.fail(id, 'tex'); return; }
+    var exPx = em / 2;
+    var w = exOf(svg.getAttribute('width')) * exPx;
+    var h = exOf(svg.getAttribute('height')) * exPx;
+    var depth = -exOf(svg.style.verticalAlign) * exPx;
+    if (!(w > 0 && h > 0)) { codegMath.fail(id, 'size'); return; }
+    svg.setAttribute('width', String(w * scale));
+    svg.setAttribute('height', String(h * scale));
+    var xml = new XMLSerializer().serializeToString(svg).replace(/currentColor/g, color);
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement('canvas');
+      c.width = Math.ceil(w * scale); c.height = Math.ceil(h * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      codegMath.done(id, JSON.stringify({ png: c.toDataURL('image/png'), w: w, h: h, depth: depth }));
+    };
+    img.onerror = function () { codegMath.fail(id, 'raster'); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  } catch (e) {
+    codegMath.fail(id, String((e && e.message) || e));
+  }
+}
+</script>
+<script src="tex-svg-full.js"></script>
+</head><body></body></html>

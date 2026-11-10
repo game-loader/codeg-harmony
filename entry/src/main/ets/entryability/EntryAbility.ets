@@ -1,4 +1,4 @@
-import { UIAbility, AbilityConstant, Want, errorManager } from '@kit.AbilityKit'
+import { UIAbility, AbilityConstant, Want, errorManager, Configuration, ConfigurationConstant } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
 import { app } from '../store/AppState'
 import { layout } from '../store/Layout'
@@ -9,6 +9,7 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     initLocale()
     app.init(this.context)
+    this.readColorMode(this.context.config)
     // Keep the last uncaught JS error so the next launch can show it.
     try {
       errorManager.on('error', {
@@ -39,6 +40,14 @@ export default class EntryAbility extends UIAbility {
         console.error(`codeg: loadContent failed ${err.code}`)
       }
     })
+  }
+
+  onConfigurationUpdate(config: Configuration): void {
+    this.readColorMode(config)
+  }
+
+  private readColorMode(config: Configuration): void {
+    layout.dark = config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK
   }
 
   onForeground(): void {

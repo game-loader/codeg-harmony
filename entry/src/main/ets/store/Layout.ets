@@ -20,6 +20,7 @@ export class LayoutState {
   @Trace topInset: number = 0
   @Trace bottomInset: number = 0
   @Trace keyboardVp: number = 0
+  @Trace dark: boolean = false
   private density: number = 3
 
   attach(win: window.Window): void {
@@ -94,6 +95,11 @@ export class LayoutState {
     } catch (e) {
       this.halfFolded = false
     }
+  }
+
+  /** Concrete text color for rasterised content (formulas). Matches app.color.text. */
+  get inkColor(): string {
+    return this.dark ? '#ECEEF6' : '#141826'
   }
 
   get isCompact(): boolean {
