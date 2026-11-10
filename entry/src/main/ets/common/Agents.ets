@@ -109,7 +109,7 @@ export function statusColor(s: string): ResourceColor {
     case 'in_progress':
       return $r('app.color.accent')
     case 'pending_review':
-      return $r('app.color.warning')
+      return '#3B82F6'
     case 'completed':
       return $r('app.color.success')
     default:

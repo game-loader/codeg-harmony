@@ -81,6 +81,8 @@ export class SessionController {
   private disposed: boolean = false
   onListChanged: () => void = () => {
   }
+  onSeen: (id: number) => void = (id: number) => {
+  }
 
   constructor(api: Api) {
     this.api = api
@@ -129,6 +131,7 @@ export class SessionController {
     }
     this.historyItems = itemsFromTurns(d.turns)
     this.rebuild()
+    this.onSeen(this.conversationId)
   }
 
   private rebuild(): void {

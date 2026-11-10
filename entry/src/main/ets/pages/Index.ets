@@ -122,6 +122,9 @@ struct Index {
     s.onListChanged = () => {
       app.refresh(true)
     }
+    s.onSeen = (cid: number) => {
+      app.markSeen(cid)
+    }
     if (conv !== undefined) {
       s.agentType = conv.agentType
       s.title = conv.displayTitle
@@ -141,6 +144,9 @@ struct Index {
     const s = new SessionController(app.api)
     s.onListChanged = () => {
       app.refresh(true)
+    }
+    s.onSeen = (cid: number) => {
+      app.markSeen(cid)
     }
     s.startDraft(folder, agentType)
     if (this.newPaper.length > 0) {

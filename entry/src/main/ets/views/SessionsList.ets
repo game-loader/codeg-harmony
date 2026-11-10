@@ -21,7 +21,7 @@ export struct SessionRow {
     Row({ space: 12 }) {
       Stack({ alignContent: Alignment.BottomEnd }) {
         AgentAvatar({ agent: this.conv.agentType, sz: 38 })
-        if (this.conv.status === 'in_progress' || this.conv.status === 'pending_review') {
+        if (this.conv.status === 'in_progress' || app.needsReview(this.conv)) {
           Circle().width(11).height(11).fill(statusColor(this.conv.status))
             .stroke($r('app.color.surface')).strokeWidth(2)
         }
@@ -44,7 +44,7 @@ export struct SessionRow {
           } else {
             Blank()
           }
-          if (this.conv.status !== 'completed') {
+          if (this.conv.status === 'in_progress' || this.conv.status === 'cancelled' || app.needsReview(this.conv)) {
             Text(statusLabel(this.conv.status)).fontSize(11).fontColor(statusColor(this.conv.status))
           }
         }.width('100%')

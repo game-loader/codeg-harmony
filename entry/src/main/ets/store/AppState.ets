@@ -24,6 +24,9 @@ export class AppState {
   @Trace error: string = ''
   @Trace theme: string = 'system'
   @Trace lastRefresh: number = 0
+  /** Conversation id -> when it was last opened here. Bumped to re-render rows. */
+  @Trace seenVersion: number = 0
+  private seen: Map<number, number> = new Map()
   private pollTimer: number = -1
   private ctx: common.Context | null = null
   private refreshing: boolean = false
@@ -34,6 +37,7 @@ export class AppState {
     AppPrefs.init(ctx)
     setDeviceIdProvider(() => AppPrefs.deviceId())
     this.theme = AppPrefs.get('theme', 'system')
+    this.loadSeen()
     this.servers = this.store.list()
     let id = this.store.activeId()
     if (id.length === 0 || this.servers.find((s: ServerProfile) => s.id === id) === undefined) {
@@ -55,6 +59,7 @@ export class AppState {
     }
     this.activeId = id
     this.store.setActive(id)
+    this.loadSeen()
     this.api = new Api(new CodegClient(p.url, this.store.token(id)))
     this.folders = []
     this.allFolders = []
@@ -183,6 +188,50 @@ export class AppState {
       this.refreshing = false
       this.loading = false
     }
+  }
+
+  private seenKey(): string {
+    return `seen.${this.activeId}`
+  }
+
+  private loadSeen(): void {
+    this.seen = new Map()
+    try {
+      const o = JSON.parse(AppPrefs.get(this.seenKey(), '{}')) as Record<string, number>
+      for (const k of Object.keys(o)) {
+        this.seen.set(Number(k), o[k])
+      }
+    } catch (e) {
+      // Corrupt entry; start fresh.
+    }
+    this.seenVersion++
+  }
+
+  /** Records that the user opened a conversation (local to this device, server status untouched). */
+  markSeen(id: number): void {
+    // Use the server's timestamp as a floor so a phone clock behind the server
+    // doesn't leave the row flagged.
+    const c = this.conversationById(id)
+    this.seen.set(id, Math.max(Date.now(), (c?.updatedAt ?? 0) + 1))
+    const o: Record<string, number> = {}
+    this.seen.forEach((v: number, k: number) => {
+      o[`${k}`] = v
+    })
+    AppPrefs.set(this.seenKey(), JSON.stringify(o))
+    this.seenVersion++
+  }
+
+  /**
+   * The server marks every finished turn `pending_review` and never clears it on
+   * view, so most sessions carry it. Treat it as "needs review" only while there
+   * is activity the user hasn't opened yet.
+   */
+  needsReview(c: ConversationSummary): boolean {
+    if (c.status !== 'pending_review' || this.seenVersion < 0) {
+      return false
+    }
+    const seenAt = this.seen.get(c.id) ?? 0
+    return c.updatedAt > seenAt
   }
 
   folderById(id: number): FolderDetail | null {
