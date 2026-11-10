@@ -1,5 +1,5 @@
 import { promptAction } from '@kit.ArkUI'
-import { agentColor, agentGlyph, agentName, statusColor, statusLabel } from '../common/Agents'
+import { agentColor, agentGlyph, agentIcon, agentIconIsTemplate, agentName, statusColor, statusLabel } from '../common/Agents'
 
 export function toast(msg: string): void {
   try {
@@ -56,15 +56,32 @@ export struct AgentAvatar {
   @Param sz: number = 32
 
   build() {
-    Text(agentGlyph(this.agent))
+    if (agentIcon(this.agent) !== null) {
+      Stack() {
+        if (agentIconIsTemplate(this.agent)) {
+          Image(agentIcon(this.agent)).width(this.sz * 0.62).height(this.sz * 0.62)
+            .objectFit(ImageFit.Contain).fillColor($r('app.color.text')).draggable(false)
+        } else {
+          Image(agentIcon(this.agent)).width(this.sz * 0.66).height(this.sz * 0.66)
+            .objectFit(ImageFit.Contain).draggable(false)
+        }
+      }
       .width(this.sz)
       .height(this.sz)
       .borderRadius(this.sz * 0.3)
-      .backgroundColor(agentColor(this.agent))
-      .fontColor(Color.White)
-      .fontSize(this.sz * 0.45)
-      .fontWeight(FontWeight.Bold)
-      .textAlign(TextAlign.Center)
+      .backgroundColor($r('app.color.surface2'))
+      .border({ width: 0.5, color: $r('app.color.border') })
+    } else {
+      Text(agentGlyph(this.agent))
+        .width(this.sz)
+        .height(this.sz)
+        .borderRadius(this.sz * 0.3)
+        .backgroundColor(agentColor(this.agent))
+        .fontColor(Color.White)
+        .fontSize(this.sz * 0.45)
+        .fontWeight(FontWeight.Bold)
+        .textAlign(TextAlign.Center)
+    }
   }
 }
 

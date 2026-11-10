@@ -38,6 +38,49 @@ export function agentName(t: string): string {
   return t.length > 0 ? t : L('Agent', '智能体')
 }
 
+/** Brand icon ported from the iOS/web client; null for unknown agents. */
+export function agentIcon(t: string): Resource | null {
+  switch (t) {
+    case 'claude_code':
+      return $r('app.media.agent_claude_code')
+    case 'codex':
+      return $r('app.media.agent_codex')
+    case 'open_code':
+      return $r('app.media.agent_open_code')
+    case 'gemini':
+      return $r('app.media.agent_gemini')
+    case 'open_claw':
+      return $r('app.media.agent_open_claw')
+    case 'cline':
+      return $r('app.media.agent_cline')
+    case 'hermes':
+      return $r('app.media.agent_hermes')
+    case 'code_buddy':
+      return $r('app.media.agent_code_buddy')
+    case 'kimi_code':
+      return $r('app.media.agent_kimi_code')
+    case 'pi':
+      return $r('app.media.agent_pi')
+    case 'grok':
+      return $r('app.media.agent_grok')
+    case 'cursor':
+      return $r('app.media.agent_cursor')
+    case 'deepseek':
+      return $r('app.media.agent_deepseek')
+    case 'qoder':
+      return $r('app.media.agent_qoder')
+    case 'antigravity':
+      return $r('app.media.agent_antigravity')
+    default:
+      return null
+  }
+}
+
+/** Monochrome brand marks are tinted with the text color so they work in dark mode. */
+export function agentIconIsTemplate(t: string): boolean {
+  return ['open_code', 'cline', 'hermes', 'code_buddy', 'grok', 'cursor', 'qoder', 'antigravity'].includes(t)
+}
+
 export function agentColor(t: string): string {
   return META.get(t)?.color ?? '#6366F1'
 }
