@@ -1,0 +1,5 @@
+{ "string": [
+  { "name": "app_name", "value": "Codeg" },
+  { "name": "module_desc", "value": "Codeg client" },
+  { "name": "ability_desc", "value": "Codeg multi-agent workbench" }
+] }

@@ -1,0 +1,116 @@
+{
+ "color": [
+  {
+   "name": "bg",
+   "value": "#F6F7FB"
+  },
+  {
+   "name": "surface",
+   "value": "#FFFFFF"
+  },
+  {
+   "name": "surface2",
+   "value": "#EEF0F6"
+  },
+  {
+   "name": "surface3",
+   "value": "#E4E7F0"
+  },
+  {
+   "name": "text",
+   "value": "#141826"
+  },
+  {
+   "name": "text2",
+   "value": "#4A5167"
+  },
+  {
+   "name": "text3",
+   "value": "#8A90A3"
+  },
+  {
+   "name": "accent",
+   "value": "#4F46E5"
+  },
+  {
+   "name": "accent_soft",
+   "value": "#E7E6FD"
+  },
+  {
+   "name": "accent2",
+   "value": "#0EA5A4"
+  },
+  {
+   "name": "border",
+   "value": "#E2E5EE"
+  },
+  {
+   "name": "code_bg",
+   "value": "#F1F3F8"
+  },
+  {
+   "name": "code_text",
+   "value": "#1F2433"
+  },
+  {
+   "name": "success",
+   "value": "#16A34A"
+  },
+  {
+   "name": "success_soft",
+   "value": "#DCF5E5"
+  },
+  {
+   "name": "warning",
+   "value": "#D97706"
+  },
+  {
+   "name": "warning_soft",
+   "value": "#FDF0D9"
+  },
+  {
+   "name": "danger",
+   "value": "#DC2626"
+  },
+  {
+   "name": "danger_soft",
+   "value": "#FDE3E3"
+  },
+  {
+   "name": "user_bubble",
+   "value": "#4F46E5"
+  },
+  {
+   "name": "user_text",
+   "value": "#FFFFFF"
+  },
+  {
+   "name": "diff_add",
+   "value": "#E3F7EA"
+  },
+  {
+   "name": "diff_del",
+   "value": "#FDE8E8"
+  },
+  {
+   "name": "diff_add_text",
+   "value": "#166534"
+  },
+  {
+   "name": "diff_del_text",
+   "value": "#991B1B"
+  },
+  {
+   "name": "rail",
+   "value": "#ECEEF5"
+  },
+  {
+   "name": "overlay",
+   "value": "#66000000"
+  },
+  {
+   "name": "start_window_background",
+   "value": "#F6F7FB"
+  }
+ ]
+}

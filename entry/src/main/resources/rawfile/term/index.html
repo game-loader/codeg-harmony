@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="stylesheet" href="xterm.css">
+<style>
+html,body{margin:0;height:100%;background:#0E1018;overflow:hidden}
+#t{position:absolute;inset:4px 4px 4px 6px}
+.xterm .xterm-viewport{background:#0E1018}
+</style></head>
+<body><div id="t"></div>
+<script src="xterm.js"></script><script src="addon-fit.js"></script>
+<script>
+// Bridge: native side injects `codegTerm` (write/resize/ready). Output comes in via termWrite(b64).
+const term = new Terminal({fontSize: 13, fontFamily: 'monospace', cursorBlink: true, scrollback: 5000,
+  theme: {background:'#0E1018', foreground:'#ECEEF6', cursor:'#8B83FF', selectionBackground:'#3b3f66'}});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById('t'));
+function b64ToBytes(b){const s=atob(b);const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;}
+window.termWrite = function(s){ term.write(s); };
+window.termReset = function(){ term.reset(); };
+window.termFocus = function(){ term.focus(); };
+window.termSend = function(s){ if (window.codegTerm) codegTerm.input(s); };
+function doFit(){ try{ fit.fit(); if (window.codegTerm) codegTerm.resize(term.cols, term.rows);}catch(e){} }
+term.onData(d => { if (window.codegTerm) codegTerm.input(d); });
+window.addEventListener('resize', doFit);
+new ResizeObserver(doFit).observe(document.getElementById('t'));
+setTimeout(()=>{ doFit(); if (window.codegTerm) codegTerm.ready(term.cols, term.rows); }, 60);
+</script></body></html>

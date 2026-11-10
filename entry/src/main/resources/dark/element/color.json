@@ -1,0 +1,116 @@
+{
+ "color": [
+  {
+   "name": "bg",
+   "value": "#0E1018"
+  },
+  {
+   "name": "surface",
+   "value": "#161925"
+  },
+  {
+   "name": "surface2",
+   "value": "#1E2231"
+  },
+  {
+   "name": "surface3",
+   "value": "#272C3E"
+  },
+  {
+   "name": "text",
+   "value": "#ECEEF6"
+  },
+  {
+   "name": "text2",
+   "value": "#B4B9CC"
+  },
+  {
+   "name": "text3",
+   "value": "#7C8299"
+  },
+  {
+   "name": "accent",
+   "value": "#8B83FF"
+  },
+  {
+   "name": "accent_soft",
+   "value": "#2A2858"
+  },
+  {
+   "name": "accent2",
+   "value": "#2DD4BF"
+  },
+  {
+   "name": "border",
+   "value": "#2A2F42"
+  },
+  {
+   "name": "code_bg",
+   "value": "#1A1E2B"
+  },
+  {
+   "name": "code_text",
+   "value": "#E3E6F0"
+  },
+  {
+   "name": "success",
+   "value": "#4ADE80"
+  },
+  {
+   "name": "success_soft",
+   "value": "#163323"
+  },
+  {
+   "name": "warning",
+   "value": "#FBBF24"
+  },
+  {
+   "name": "warning_soft",
+   "value": "#3A2C10"
+  },
+  {
+   "name": "danger",
+   "value": "#F87171"
+  },
+  {
+   "name": "danger_soft",
+   "value": "#3D1A1D"
+  },
+  {
+   "name": "user_bubble",
+   "value": "#4C45C9"
+  },
+  {
+   "name": "user_text",
+   "value": "#FFFFFF"
+  },
+  {
+   "name": "diff_add",
+   "value": "#14301F"
+  },
+  {
+   "name": "diff_del",
+   "value": "#3A1719"
+  },
+  {
+   "name": "diff_add_text",
+   "value": "#86EFAC"
+  },
+  {
+   "name": "diff_del_text",
+   "value": "#FCA5A5"
+  },
+  {
+   "name": "rail",
+   "value": "#12141E"
+  },
+  {
+   "name": "overlay",
+   "value": "#99000000"
+  },
+  {
+   "name": "start_window_background",
+   "value": "#0E1018"
+  }
+ ]
+}

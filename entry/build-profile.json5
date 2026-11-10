@@ -1,0 +1,13 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "arkOptions": {}
+  },
+  "buildOptionSet": [
+    {
+      "name": "release",
+      "arkOptions": { "obfuscation": { "ruleOptions": { "enable": false } } }
+    }
+  ],
+  "targets": [{ "name": "default" }]
+}
