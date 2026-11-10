@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 cd "$ROOT"
 printf 'sdk.dir=%s\n' "$OHOS_BASE_SDK_HOME" > local.properties
-[ -e node_modules ] || ln -s "$HVIGOR_HOME/node_modules" node_modules
+if [ -L node_modules ] || [ ! -e node_modules ]; then ln -sfn "$HVIGOR_HOME/node_modules" node_modules; fi
 set +e
 node "$HVIGOR_HOME/node_modules/@ohos/hvigor/bin/hvigor.js" --mode module -p module=entry@default \
   -p product=default -p buildMode="${MODE:-debug}" assembleHap --no-daemon "$@" 2>&1 \
