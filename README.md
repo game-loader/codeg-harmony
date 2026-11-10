@@ -22,11 +22,39 @@ The open session survives folding and unfolding.
 
 ## Build (command line, no DevEco Studio)
 
-Needs the OpenHarmony SDK (API 20) under `$OHOS_BASE_SDK_HOME`, JDK 17 and
-`@ohos/hvigor` + `@ohos/hvigor-ohos-plugin` from `https://repo.harmonyos.com/npm/`.
-See `scripts/build.sh` and `scripts/sign.sh`.
+```bash
+scripts/setup-sdk.sh            # OpenHarmony 6.0 SDK (API 20) + hvigor into ~/ohos
+MODE=release scripts/build.sh   # entry/build/default/outputs/default/entry-default-unsigned.hap
+scripts/sign.sh in.hap out.hap  # sign + verify
+```
 
-`sign.sh` signs with a certificate issued by the OpenHarmony public test CA.
-That works on OpenHarmony developer boards. Consumer HarmonyOS NEXT phones
-require a debug certificate and profile from AppGallery Connect (signed in
-DevEco Studio with your Huawei developer account).
+Needs JDK 17, Node 20+, curl, unzip and python3. Paths can be overridden with
+`OHOS_TOOLS`, `OHOS_BASE_SDK_HOME`, `HVIGOR_HOME` and `SIGN_DIR`.
+
+## CI
+
+`.github/workflows/build-hap.yml` builds and signs a release HAP on every push
+and pull request and uploads it as the `codeg-harmony-hap` artifact. Pushing a
+`v*` tag also publishes a GitHub Release with the HAPs.
+
+## Signing
+
+Without secrets, CI signs with a certificate issued by the OpenHarmony public
+test CA. That installs on OpenHarmony developer boards, but consumer HarmonyOS
+NEXT phones reject it.
+
+To produce a HAP that installs on your own phone, create a debug certificate
+and a debug profile (with your device registered) in AppGallery Connect, then
+add these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `HAP_SIGN_P12_BASE64` | `base64 -w0 your.p12` |
+| `HAP_SIGN_CERT_BASE64` | `base64 -w0 your.cer` |
+| `HAP_SIGN_PROFILE_BASE64` | `base64 -w0 your.p7b` |
+| `HAP_SIGN_KEY_ALIAS` | key alias in the .p12 |
+| `HAP_SIGN_STORE_PASSWORD` | keystore password |
+| `HAP_SIGN_KEY_PASSWORD` | key password |
+
+The bundle name in the profile must be `com.gameloader.codeg`. Install with
+`hdc install <file>.hap`.

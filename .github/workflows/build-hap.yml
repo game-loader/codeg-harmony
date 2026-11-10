@@ -1,0 +1,101 @@
+name: Build HAP
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      OHOS_TOOLS: ${{ github.workspace }}/../ohos
+      SDK_RELEASE: 6.0-Release
+      HVIGOR_VERSION: 6.26.9
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache OpenHarmony SDK and hvigor
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../ohos
+          key: ohos-${{ env.SDK_RELEASE }}-hvigor-${{ env.HVIGOR_VERSION }}-v1
+
+      - name: Install SDK
+        run: scripts/setup-sdk.sh
+
+      - name: Build release HAP
+        run: MODE=release scripts/build.sh
+
+      - name: Decode AGC signing material
+        id: agc
+        env:
+          P12: ${{ secrets.HAP_SIGN_P12_BASE64 }}
+          CER: ${{ secrets.HAP_SIGN_CERT_BASE64 }}
+          P7B: ${{ secrets.HAP_SIGN_PROFILE_BASE64 }}
+        run: |
+          if [ -n "$P12" ] && [ -n "$CER" ] && [ -n "$P7B" ]; then
+            d="$RUNNER_TEMP/agc"; mkdir -p "$d"
+            echo "$P12" | base64 -d > "$d/key.p12"
+            echo "$CER" | base64 -d > "$d/app.cer"
+            echo "$P7B" | base64 -d > "$d/profile.p7b"
+            echo "dir=$d" >> "$GITHUB_OUTPUT"
+            echo "mode=agc" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=test" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign HAP
+        env:
+          SIGN_P12: ${{ steps.agc.outputs.mode == 'agc' && format('{0}/key.p12', steps.agc.outputs.dir) || '' }}
+          SIGN_CERT: ${{ steps.agc.outputs.dir }}/app.cer
+          SIGN_PROFILE: ${{ steps.agc.outputs.dir }}/profile.p7b
+          SIGN_KEY_ALIAS: ${{ secrets.HAP_SIGN_KEY_ALIAS }}
+          SIGN_STORE_PASSWORD: ${{ secrets.HAP_SIGN_STORE_PASSWORD }}
+          SIGN_KEY_PASSWORD: ${{ secrets.HAP_SIGN_KEY_PASSWORD }}
+        run: |
+          ver=$(python3 -c "import json,re;print(re.search(r'\"versionName\":\s*\"([^\"]+)\"',open('AppScope/app.json5').read()).group(1))")
+          name="codeg-harmony-${ver}-${GITHUB_SHA::7}"
+          mkdir -p dist
+          cp entry/build/default/outputs/default/entry-default-unsigned.hap "dist/${name}-unsigned.hap"
+          scripts/sign.sh "dist/${name}-unsigned.hap" "dist/${name}-${{ steps.agc.outputs.mode }}-signed.hap"
+          (cd dist && sha256sum *.hap > SHA256SUMS)
+          {
+            echo "### HAP built"
+            echo "- signing: \`${{ steps.agc.outputs.mode }}\`"
+            echo '```'; cat dist/SHA256SUMS; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeg-harmony-hap
+          path: dist/
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" \
+            --notes "Signed HAP (signing: ${{ steps.agc.outputs.mode }}) and unsigned HAP. See README for installation." \
+            || gh release upload "$GITHUB_REF_NAME" dist/* --clobber

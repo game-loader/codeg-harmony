@@ -1,5 +1,15 @@
-#!/bin/bash
-export JAVA_HOME=~/ohos/jdk-17.0.21+9 PATH=~/ohos/jdk-17.0.21+9/bin:$PATH OHOS_BASE_SDK_HOME=~/ohos/sdk
-cd ~/codeg-harmony
-[ -e node_modules ] || ln -s ~/ohos/hvigor/node_modules node_modules
-node ~/ohos/hvigor/node_modules/@ohos/hvigor/bin/hvigor.js --mode module -p module=entry@default -p product=default -p buildMode=${MODE:-debug} assembleHap --no-daemon "$@" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+#!/usr/bin/env bash
+# Builds entry-default-unsigned.hap. MODE=release|debug (default debug).
+set -euo pipefail
+source "$(dirname "$0")/env.sh"
+cd "$ROOT"
+printf 'sdk.dir=%s\n' "$OHOS_BASE_SDK_HOME" > local.properties
+[ -e node_modules ] || ln -s "$HVIGOR_HOME/node_modules" node_modules
+set +e
+node "$HVIGOR_HOME/node_modules/@ohos/hvigor/bin/hvigor.js" --mode module -p module=entry@default \
+  -p product=default -p buildMode="${MODE:-debug}" assembleHap --no-daemon "$@" 2>&1 \
+  | sed 's/\x1b\[[0-9;]*m//g' | tee "$ROOT/.build.log"
+status=${PIPESTATUS[0]}
+set -e
+grep -q "BUILD SUCCESSFUL" "$ROOT/.build.log" || exit "${status:-1}"
+ls -la "$ROOT/entry/build/default/outputs/default/"
