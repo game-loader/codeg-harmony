@@ -34,8 +34,11 @@ Needs JDK 17, Node 20+, curl, unzip and python3. Paths can be overridden with
 ## CI
 
 `.github/workflows/build-hap.yml` builds and signs a release HAP on every push
-and pull request and uploads it as the `codeg-harmony-hap` artifact. Pushing a
-`v*` tag also publishes a GitHub Release with the HAPs.
+and pull request and uploads it as the `codeg-harmony-hap` artifact.
+
+- Every push to `main` replaces the rolling **latest** release:
+  https://github.com/game-loader/codeg-harmony/releases/tag/latest
+- Pushing a `v*` tag publishes a versioned release.
 
 ## Signing
 

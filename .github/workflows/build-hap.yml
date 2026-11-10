@@ -91,11 +91,25 @@ jobs:
           path: dist/
           retention-days: 30
 
-      - name: Publish release
+      - name: Publish versioned release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" \
-            --notes "Signed HAP (signing: ${{ steps.agc.outputs.mode }}) and unsigned HAP. See README for installation." \
+          notes="Signed HAP (signing: ${{ steps.agc.outputs.mode }}) and unsigned HAP, built from ${GITHUB_SHA::7}. See README for installation."
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Codeg HarmonyOS $GITHUB_REF_NAME" --notes "$notes" \
             || gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+      # Every push to main replaces the rolling `latest` release, so the newest HAP
+      # is always at https://github.com/<owner>/<repo>/releases/tag/latest.
+      - name: Publish rolling latest release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+          notes=$(printf 'Latest build of `main` at %s (%s).\n\nSigning: `%s`.\n\n```\n%s\n```\n\nSee README for installation.' \
+            "${GITHUB_SHA::7}" "$(date -u +%Y-%m-%dT%H:%MZ)" "${{ steps.agc.outputs.mode }}" "$(cat dist/SHA256SUMS)")
+          gh release create latest dist/* --target "$GITHUB_SHA" --title "Codeg HarmonyOS (latest main)" \
+            --notes "$notes" --latest
