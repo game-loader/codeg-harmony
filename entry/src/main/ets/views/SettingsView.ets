@@ -6,6 +6,7 @@ import { JObj, arr, asObj, bool, str } from '../common/Json'
 import { L, isZh, setZh } from '../common/I18n'
 import { Card, Divider1, IconButton, NavRow, SectionHeader, sym, toast, AgentAvatar } from '../components/Common'
 import { ServerEditor, ServerList } from './ServersView'
+import { math } from '../components/MathRenderer'
 
 @ComponentV2
 export struct AgentsSettings {
@@ -365,6 +366,9 @@ export struct SettingsView {
                 Divider1({ inset: 58 })
                 NavRow({ icon: 'computer', title: L('Server version', '服务器版本'),
                   value: app.health?.version ?? '—', chevron: false })
+                Divider1({ inset: 58 })
+                NavRow({ icon: 'doc_text', title: L('Formula engine', '公式引擎'),
+                  subtitle: math.lastError, value: `${math.status} · ${math.rendered}/${math.failed}`, chevron: false })
               }
             }.padding({ left: 16, right: 16 })
           }

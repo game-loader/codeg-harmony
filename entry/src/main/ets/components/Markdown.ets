@@ -4,6 +4,8 @@ import { LinkRouter } from './Links'
 import { sym, toast } from './Common'
 import { L } from '../common/I18n'
 import { math, MathImage } from './MathRenderer'
+import { normalizeTex, texToRuns, TexRun } from './TexLite'
+import { LengthMetrics } from '@kit.ArkUI'
 import { layout } from '../store/Layout'
 
 /** Re-evaluated whenever a formula finishes rendering (reads math.version). */
@@ -12,12 +14,12 @@ function inlineSpans(text: string, v: number): MdSpan[] {
 }
 
 function spanKey(s: MdSpan, i: number, size: number): string {
-  const ready = s.kind === SpanKind.Math && math.has(s.text, false, layout.inkColor, size)
+  const ready = s.kind === SpanKind.Math && math.has(normalizeTex(s.text), false, layout.inkColor, size)
   return `${i}-${s.kind}-${s.text}-${ready}`
 }
 
 function inlineMath(tex: string, size: number): MathImage | undefined {
-  const m = math.get(tex, false, layout.inkColor, size)
+  const m = math.get(normalizeTex(tex), false, layout.inkColor, size)
   return m !== undefined && !m.failed ? m : undefined
 }
 
@@ -54,7 +56,14 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
             .verticalAlign(ImageSpanAlignment.CENTER)
             .objectFit(ImageFit.Fill)
         } else {
-          Span(s.text).fontFamily('serif').fontStyle(FontStyle.Italic).fontColor($r('app.color.accent2'))
+          // Native fallback: real sub/superscripts until (or unless) MathJax delivers.
+          ForEach(texToRuns(normalizeTex(s.text)), (r: TexRun) => {
+            Span(r.text)
+              .fontFamily('serif')
+              .fontStyle(r.italic ? FontStyle.Italic : FontStyle.Normal)
+              .fontSize(r.level === 0 ? size : size * 0.7)
+              .baselineOffset(LengthMetrics.vp(r.level < 0 ? -size * 0.22 : r.level > 0 ? size * 0.38 : 0))
+          }, (r: TexRun, i: number) => `${i}-${r.level}-${r.text}`)
         }
       } else if (s.kind === SpanKind.Bold) {
         Span(s.text).fontWeight(FontWeight.Bold)
@@ -247,7 +256,7 @@ export struct MathBlock {
 
   image(): MathImage | undefined {
     const v = math.version
-    const m = v >= 0 ? math.get(this.tex, true, layout.inkColor, this.fontSize) : undefined
+    const m = v >= 0 ? math.get(normalizeTex(this.tex), true, layout.inkColor, this.fontSize) : undefined
     return m !== undefined && !m.failed ? m : undefined
   }
 
@@ -261,8 +270,19 @@ export struct MathBlock {
           .draggable(false)
           .margin({ top: 6, bottom: 6 })
       } else {
-        Text(this.tex).fontFamily('serif').fontStyle(FontStyle.Italic).fontSize(this.fontSize - 1)
-          .fontColor($r('app.color.accent2')).copyOption(CopyOptions.LocalDevice).padding(12)
+        Text() {
+          ForEach(texToRuns(normalizeTex(this.tex)), (r: TexRun) => {
+            Span(r.text)
+              .fontFamily('serif')
+              .fontStyle(r.italic ? FontStyle.Italic : FontStyle.Normal)
+              .fontSize(r.level === 0 ? this.fontSize : this.fontSize * 0.7)
+              .baselineOffset(LengthMetrics.vp(r.level < 0 ? -this.fontSize * 0.22 :
+                r.level > 0 ? this.fontSize * 0.38 : 0))
+          }, (r: TexRun, i: number) => `${i}-${r.level}-${r.text}`)
+        }
+        .fontColor($r('app.color.text'))
+        .copyOption(CopyOptions.LocalDevice)
+        .padding({ top: 10, bottom: 10, left: 4, right: 4 })
       }
     }
     .scrollable(ScrollDirection.Horizontal)

@@ -27,6 +27,11 @@ const CACHE_MAX = 800
 @ObservedV2
 export class MathRenderer {
   @Trace version: number = 0
+  /** loading | ready | unavailable; plus the last page error, shown in Settings. */
+  @Trace status: string = 'loading'
+  @Trace lastError: string = ''
+  rendered: number = 0
+  failed: number = 0
   controller: webview.WebviewController = new webview.WebviewController()
   private ready: boolean = false
   private nextId: number = 1
@@ -91,6 +96,7 @@ export class MathRenderer {
   }
 
   onReady(): void {
+    this.status = 'ready'
     this.ready = true
     this.pump()
   }
@@ -103,6 +109,11 @@ export class MathRenderer {
     this.inflight.delete(id)
     this.pendingKeys.delete(j.key)
     let out = img
+    if (img !== null) {
+      this.rendered++
+    } else {
+      this.failed++
+    }
     if (out === null) {
       out = new MathImage()
       out.failed = true
@@ -152,6 +163,9 @@ class MathBridge {
   }
 
   fail(id: number, reason: string): void {
+    if (reason !== 'tex') {
+      math.lastError = reason
+    }
     math.finish(id, null)
   }
 }
@@ -161,6 +175,14 @@ class MathBridge {
 export struct MathHost {
   private bridge: MathBridge = new MathBridge()
 
+  aboutToAppear(): void {
+    setTimeout((): void => {
+      if (math.status === 'loading') {
+        math.status = 'unavailable'
+      }
+    }, 20000)
+  }
+
   build() {
     Web({ src: $rawfile('math/index.html'), controller: math.controller })
       .javaScriptAccess(true)
@@ -168,6 +190,15 @@ export struct MathHost {
       .javaScriptProxy({
         object: this.bridge, name: 'codegMath', methodList: ['ready', 'done', 'fail'],
         controller: math.controller
+      })
+      .onConsole((e: OnConsoleEvent) => {
+        if (e.message.getMessageLevel() === MessageLevel.Error) {
+          math.lastError = e.message.getMessage().substring(0, 300)
+        }
+        return false
+      })
+      .onErrorReceive((e: OnErrorReceiveEvent) => {
+        math.lastError = `load: ${e.error.getErrorInfo()} ${e.request.getRequestUrl()}`.substring(0, 300)
       })
       .onPageEnd(() => {
         // The page may have finished MathJax startup before the proxy existed.
@@ -178,8 +209,8 @@ export struct MathHost {
         }).catch(() => {
         })
       })
-      .width(2)
-      .height(2)
+      .width(320)
+      .height(200)
       .opacity(0)
       .hitTestBehavior(HitTestMode.None)
   }

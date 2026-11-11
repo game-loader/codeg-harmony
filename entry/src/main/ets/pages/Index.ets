@@ -448,7 +448,7 @@ struct Index {
         this.content()
       }
       // Hidden MathJax page that rasterises formulas; out of layout flow.
-      MathHost().position({ x: -20, y: -20 })
+      MathHost().position({ x: 0, y: 0 }).zIndex(-1)
     }
     .width('100%')
     .height('100%')
