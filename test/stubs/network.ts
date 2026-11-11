@@ -3,6 +3,7 @@ export const http = {
   RequestMethod: { POST: 'POST' },
   HttpDataType: { STRING: 0 },
   createHttp() {
+    const streamHandlers: Record<string, Function> = {}
     return {
       async request(url: string, o: any) {
         const ctl = new AbortController()
@@ -13,6 +14,31 @@ export const http = {
         } finally {
           clearTimeout(timer)
         }
+      },
+      // Streamed download: chunks arrive as `dataReceive` events and the promise
+      // yields the status code. The last chunk and `dataEnd` are delivered after
+      // the promise settles, the least convenient order for the caller.
+      on(ev: string, cb: Function) { streamHandlers[ev] = cb },
+      off(ev: string) { delete streamHandlers[ev] },
+      async requestInStream(url: string, o: any): Promise<number> {
+        const res = await fetch(url, { method: 'POST', headers: o.header, body: o.extraData })
+        const headers: Record<string, string> = {}
+        res.headers.forEach((v: string, k: string) => { headers[k] = v })
+        streamHandlers['headersReceive']?.(headers)
+        const chunks: Uint8Array[] = []
+        const reader = res.body!.getReader()
+        for (;;) {
+          const r = await reader.read()
+          if (r.done) break
+          chunks.push(r.value)
+        }
+        const last = chunks.pop()
+        for (const c of chunks) streamHandlers['dataReceive']?.(c.buffer.slice(c.byteOffset, c.byteOffset + c.byteLength))
+        setTimeout(() => {
+          if (last !== undefined) streamHandlers['dataReceive']?.(last.buffer.slice(last.byteOffset, last.byteOffset + last.byteLength))
+          streamHandlers['dataEnd']?.()
+        }, 20)
+        return res.status
       },
       destroy() {}
     }

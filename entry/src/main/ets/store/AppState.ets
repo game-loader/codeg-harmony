@@ -30,6 +30,7 @@ export class AppState {
   private pollTimer: number = -1
   private ctx: common.Context | null = null
   private refreshing: boolean = false
+  private home: string = ''
 
   init(ctx: common.Context): void {
     this.ctx = ctx
@@ -67,6 +68,7 @@ export class AppState {
     this.agents = []
     this.health = null
     this.online = false
+    this.home = ''
     this.refresh()
     this.startPolling()
   }
@@ -232,6 +234,18 @@ export class AppState {
     }
     const seenAt = this.seen.get(c.id) ?? 0
     return c.updatedAt > seenAt
+  }
+
+  /** Home directory of the user the server runs as (what `~/` means in an agent's reply); '' if unknown. */
+  async homeDir(): Promise<string> {
+    if (this.home.length === 0 && this.api !== null) {
+      try {
+        this.home = await this.api.homeDirectory()
+      } catch (e) {
+        this.home = ''
+      }
+    }
+    return this.home
   }
 
   folderById(id: number): FolderDetail | null {

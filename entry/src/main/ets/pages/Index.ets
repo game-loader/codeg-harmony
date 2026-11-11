@@ -4,7 +4,7 @@ import { layout } from '../store/Layout'
 import { ConversationSummary, FolderDetail } from '../model/Models'
 import { SessionController } from '../session/SessionController'
 import { LinkRouter } from '../components/Links'
-import { decodeFileHref } from '../components/MarkdownParse'
+import { isFileHref, isFilePathText, parseFileTarget, resolveFile } from '../session/FileRefs'
 import { EmptyState, sym, toast } from '../components/Common'
 import { L } from '../common/I18n'
 import { AppPrefs as Prefs } from '../store/ServerStore'
@@ -46,6 +46,7 @@ struct Index {
   @Local project: FolderDetail | null = null
   @Local previewRoot: string = ''
   @Local previewPath: string = ''
+  @Local previewLine: number = 0
   @Local showNew: boolean = false
   @Local newFolder: number = -1
   @Local newPaper: string = ''
@@ -78,13 +79,6 @@ struct Index {
   }
 
   openLink(href: string, root: string): void {
-    if (href.startsWith('file://') || href.startsWith('/')) {
-      const abs = decodeFileHref(href)
-      const base = root.length > 0 && abs.startsWith(root) ? root : abs.substring(0, abs.lastIndexOf('/'))
-      this.previewRoot = base
-      this.previewPath = abs
-      return
-    }
     if (href.startsWith('codeg://session/')) {
       const id = Number(href.substring('codeg://session/'.length).split(/[/?#]/)[0])
       if (id > 0) {
@@ -95,9 +89,30 @@ struct Index {
     if (href.startsWith('codeg://')) {
       return
     }
-    this.ctx().openLink(href).catch(() => {
+    if (isFileHref(href) || isFilePathText(href)) {
+      this.openFile(href, root)
+      return
+    }
+    // A web address written without its scheme (`www.example.com`).
+    const url = new RegExp('^[A-Za-z][A-Za-z\\d+.-]*:').test(href) ? href : `https://${href}`
+    this.ctx().openLink(url).catch(() => {
       toast(L('Cannot open link', '无法打开链接'))
     })
+  }
+
+  /** Opens a file an agent referred to: `/abs/a.md`, `src/a.ts:12` (from the session folder), `~/out/demo.mp4`. */
+  async openFile(ref: string, root: string): Promise<void> {
+    const target = parseFileTarget(ref)
+    const home = target.path.startsWith('~/') ? await app.homeDir() : ''
+    const file = resolveFile(target, root, home)
+    if (file === null) {
+      toast(target.path.startsWith('~/') ? L('Could not read the server\'s home directory', '无法读取服务器的主目录') :
+      L('This path is relative, and this session has no folder to resolve it from', '这是相对路径，而当前会话没有可用来定位它的目录'))
+      return
+    }
+    this.previewRoot = file.root
+    this.previewLine = file.line
+    this.previewPath = file.abs
   }
 
   disposeSession(): void {
@@ -261,6 +276,7 @@ struct Index {
       onNewSession: (f: FolderDetail) => this.newSession(f.id),
       onPreview: (r: string, p: string) => {
         this.previewRoot = r
+        this.previewLine = 0
         this.previewPath = p
       },
       onOpenFolder: (f: FolderDetail) => {
@@ -276,7 +292,7 @@ struct Index {
   @Builder
   detailPane() {
     if (this.previewPath.length > 0) {
-      FilePreview({ root: this.previewRoot, path: this.previewPath, onClose: () => {
+      FilePreview({ root: this.previewRoot, path: this.previewPath, lineNo: this.previewLine, onClose: () => {
         this.previewPath = ''
       } })
     } else if (this.session !== null && (this.section === 'sessions' || this.sessionFromProject)) {
@@ -347,7 +363,7 @@ struct Index {
   @Builder
   compactLayout() {
     if (this.previewPath.length > 0) {
-      FilePreview({ root: this.previewRoot, path: this.previewPath, onClose: () => {
+      FilePreview({ root: this.previewRoot, path: this.previewPath, lineNo: this.previewLine, onClose: () => {
         this.previewPath = ''
       } })
     } else if (this.session !== null && (this.section === 'sessions' || this.sessionFromProject ||

@@ -2,6 +2,8 @@
 // with the wire shapes of the Rust types (LiveSessionSnapshot, AcpEvent, ws_attach::ServerMsg).
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { createReadStream, existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { WebSocketServer } from 'ws'
 
 const sel = (id, name, category, current, values) => ({
@@ -21,6 +23,7 @@ export async function startFake() {
     conns: new Map(), stored: new Map(), log: [], sockets: new Set(), seq: 0,
     readyDelayMs: 600, setDelayMs: 150, failConnect: 0,
     modesOnly: false, // an agent that publishes modes but no config options
+    dropDownloadAfter: 0, // cut the connection after this many bytes of a download
     count(cmd) { return f.log.filter(l => l.cmd === cmd).length },
     last(cmd) { return [...f.log].reverse().find(l => l.cmd === cmd)?.body }
   }
@@ -91,7 +94,8 @@ export async function startFake() {
     acp_disconnect: b => { f.reclaim(b.connectionId); return null },
     // CreateChatConversationResult is camelCase; the FolderDetail inside it keeps snake_case.
     create_chat_conversation: () => ({ conversationId: 9, folderId: 4, folder: { id: 4, name: 'Chat', path: '/data/chat-sessions/2026-11-11/abc', git_branch: null, default_agent_type: null, last_opened_at: '2026-11-11T00:00:00Z', sort_order: 0, color: '', parent_id: null, kind: 'chat', alias: null } }),
-    acp_prompt: () => null
+    acp_prompt: () => null,
+    workspace_download_ticket: b => ({ ticket: 'tkt123', url: '/api/workspace_download/tkt123', filename: b.path.split('/').pop(), expiresAt: '0' })
   }
   const server = http.createServer((req, res) => {
     let raw = ''
@@ -100,6 +104,24 @@ export async function startFake() {
       const cmd = req.url.replace('/api/', '')
       const body = raw ? JSON.parse(raw) : {}
       f.log.push({ cmd, body })
+      if (cmd === 'download_workspace_file') {
+        // Streams the bytes as application/octet-stream with a Content-Length, like the real handler.
+        const target = join(body.rootPath, body.path)
+        if (!existsSync(target) || !statSync(target).isFile()) {
+          res.statusCode = 404
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ code: 'not_found', message: 'File does not exist' }))
+          return
+        }
+        res.setHeader('Content-Type', 'application/octet-stream')
+        res.setHeader('Content-Length', String(statSync(target).size))
+        if (f.dropDownloadAfter > 0) {
+          createReadStream(target, { end: f.dropDownloadAfter - 1 }).on('data', d => res.write(d)).on('end', () => setTimeout(() => res.destroy(), 50))
+        } else {
+          createReadStream(target).pipe(res)
+        }
+        return
+      }
       res.setHeader('Content-Type', 'application/json')
       try {
         if (!handlers[cmd]) { res.statusCode = 404; res.end('{}'); return }

@@ -8,12 +8,13 @@ import { UploadFile } from '../net/CodegClient'
 
 const MAX_EDGE = 2048
 
-function mimeFor(name: string): string {
+export function mimeFor(name: string): string {
   const ext = (name.split('.').pop() ?? '').toLowerCase()
   const m: Record<string, string> = {
     'pdf': 'application/pdf', 'txt': 'text/plain', 'md': 'text/markdown', 'json': 'application/json',
     'csv': 'text/csv', 'zip': 'application/zip', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-    'gif': 'image/gif', 'webp': 'image/webp', 'mp4': 'video/mp4', 'mov': 'video/quicktime',
+    'gif': 'image/gif', 'webp': 'image/webp', 'mp4': 'video/mp4', 'mov': 'video/quicktime', 'webm': 'video/webm',
+    'mkv': 'video/x-matroska', 'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'svg': 'image/svg+xml', 'log': 'text/plain',
     'html': 'text/html', 'py': 'text/x-python', 'ts': 'text/plain', 'js': 'text/javascript',
     'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

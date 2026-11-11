@@ -42,6 +42,10 @@ export class ApiError extends Error {
       m.includes('connection not found')
   }
 
+  get isNotFound(): boolean {
+    return this.status === 404 || this.code === 'not_found'
+  }
+
   get isNotGitRepo(): boolean {
     return this.code === 'not_a_git_repository'
   }

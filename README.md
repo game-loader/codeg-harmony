@@ -5,7 +5,8 @@ feature set of the codeg iOS client: multiple servers, sessions with live ACP
 streaming, permission / question / plan-approval cards, composer with images,
 files, quick messages, expert skills, slash commands and agent delegation,
 mode/model selectors, projects, file browser and preview (text, Markdown,
-images, video), git (changes, commit, push/pull, history, branches), worktrees,
+images, video), files referenced in replies (tap to preview, save to the
+device, open in another app), git (changes, commit, push/pull, history, branches), worktrees,
 terminal (xterm.js in ArkWeb), Machines, Academic, Bark notifications and
 agent settings.
 
@@ -35,16 +36,19 @@ Needs JDK 17, Node 20+, curl, unzip and python3. Paths can be overridden with
 
 ```bash
 test/run.sh                 # no device, no server needed
-test/run.sh live [agent]    # against a real codeg-server (CODEG_HOST, CODEG_PORT, CODEG_TOKEN)
+test/run.sh live [agent]    # mode/model options against a real codeg-server (CODEG_HOST, CODEG_PORT, CODEG_TOKEN)
+test/run.sh live-files      # file preview, video stream and download against a codeg-server on this machine
 ```
 
 The non-UI ArkTS (`net/`, `session/`, `store/`) is bundled as TypeScript with the
 HarmonyOS kits replaced by small Node stand-ins (`test/stubs/`), so the same code
 the app ships is what runs. `test/run.sh` checks the mode/model option parser
-against catalogs recorded from a server, and drives `SessionController` against
-a local stand-in server (`test/fake_server.mjs`). `live` runs the same session
-logic against a real server: it starts an agent, changes its settings and
-disconnects, without sending a prompt. Views are not covered.
+against catalogs recorded from a server, the rules that recognise and locate
+files referenced in replies, and drives `SessionController` and the streamed
+download against a local stand-in server (`test/fake_server.mjs`). `live` runs
+the session logic against a real server: it starts an agent, changes its
+settings and disconnects, without sending a prompt. `live-files` reads and
+downloads temporary files it creates itself. Views are not covered.
 
 ## CI
 

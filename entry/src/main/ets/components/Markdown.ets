@@ -1,5 +1,6 @@
 import { pasteboard } from '@kit.BasicServicesKit'
-import { MdBlock, MdKind, MdListItem, MdSpan, SpanKind, decodeFileHref, fileIconFor, parseInline, parseMarkdown } from './MarkdownParse'
+import { MdBlock, MdKind, MdListItem, MdSpan, SpanKind, fileIconFor, parseInline, parseMarkdown } from './MarkdownParse'
+import { parseFileTarget } from '../session/FileRefs'
 import { LinkRouter } from './Links'
 import { sym, toast } from './Common'
 import { L } from '../common/I18n'
@@ -48,6 +49,14 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
           .fontSize(size - 1.5)
           .fontColor($r('app.color.code_text'))
           .textBackgroundStyle({ color: $r('app.color.code_bg'), radius: 5 })
+      } else if (s.kind === SpanKind.CodeFile) {
+        // A path in backticks: still code, but tapping it opens the file.
+        Span(` ${s.text} `)
+          .fontFamily('monospace')
+          .fontSize(size - 1.5)
+          .fontColor($r('app.color.accent'))
+          .textBackgroundStyle({ color: $r('app.color.code_bg'), radius: 5 })
+          .onClick(() => LinkRouter.open(s.href, root))
       } else if (s.kind === SpanKind.Math) {
         if (inlineMath(s.text, size) !== undefined) {
           ImageSpan(inlineMath(s.text, size)?.png ?? '')
@@ -75,7 +84,7 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
         Span(s.text).decoration({ type: TextDecorationType.LineThrough })
       } else if (s.kind === SpanKind.File) {
         SymbolSpan(sym(fileIconFor(s.href))).fontSize(size - 1).fontColor([$r('app.color.accent')])
-        Span(` ${s.text.length > 0 ? s.text : baseName(decodeFileHref(s.href))}`)
+        Span(` ${s.text.length > 0 ? s.text : baseName(parseFileTarget(s.href).path)}`)
           .fontColor($r('app.color.accent'))
           .fontWeight(FontWeight.Medium)
           .onClick(() => LinkRouter.open(s.href, root))

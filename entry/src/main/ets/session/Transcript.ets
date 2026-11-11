@@ -374,17 +374,27 @@ function contentToText(v: Object | null | undefined): string {
   return parts.join('\n')
 }
 
+/** A file attached to a user turn. */
+export class UserFile {
+  name: string = ''
+  /** `file://` URI of the file on the server. */
+  href: string = ''
+}
+
 /** A user turn's text with attachment links `[name](file:///…)` pulled out as chips. */
 export class UserText {
   text: string = ''
-  files: string[] = []
+  files: UserFile[] = []
 }
 
 export function splitUserResources(text: string): UserText {
   const r = new UserText()
   const re = new RegExp('\\[([^\\]]+)\\]\\((file://[^)]+)\\)', 'g')
-  r.text = text.replace(re, (m: string, name: string) => {
-    r.files.push(name)
+  r.text = text.replace(re, (m: string, name: string, href: string) => {
+    const f = new UserFile()
+    f.name = name
+    f.href = href
+    r.files.push(f)
     return ''
   }).trim()
   return r

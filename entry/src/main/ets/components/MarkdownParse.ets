@@ -1,3 +1,5 @@
+import { isFileHref, isFilePathText, parseFileTarget } from '../session/FileRefs'
+
 export enum MdKind {
   Para = 'p',
   Heading = 'h',
@@ -35,6 +37,8 @@ export enum SpanKind {
   BoldItalic = 'bi',
   Strike = 's',
   Code = 'c',
+  /** Inline code that is a path to a file; `href` holds the path. */
+  CodeFile = 'cf',
   Link = 'l',
   File = 'f',
   Ref = 'r',
@@ -317,7 +321,12 @@ export function parseInline(src: string): MdSpan[] {
       const tick = '`'.repeat(run)
       const end = src.indexOf(tick, i + run)
       if (end > 0) {
-        push(SpanKind.Code, src.substring(i + run, end).trim())
+        const code = src.substring(i + run, end).trim()
+        if (isFilePathText(code)) {
+          push(SpanKind.CodeFile, code, code)
+        } else {
+          push(SpanKind.Code, code)
+        }
         i = end + run
         continue
       }
@@ -348,12 +357,12 @@ export function parseInline(src: string): MdSpan[] {
       const start = c === '!' ? i + 1 : i
       const close = findClose(src, start)
       if (close > 0 && src[close + 1] === '(') {
-        const pe = src.indexOf(')', close + 2)
+        const dest = readDestination(src, close + 2)
+        const pe = dest.end
         if (pe > 0) {
           const label = src.substring(start + 1, close)
-          const href = src.substring(close + 2, pe).trim().split(' ')[0]
-          const kind = href.startsWith('file://') || href.startsWith('/') ? SpanKind.File :
-            href.startsWith('codeg://') ? SpanKind.Ref : SpanKind.Link
+          const href = dest.href
+          const kind = href.startsWith('codeg://') ? SpanKind.Ref : isFileHref(href) ? SpanKind.File : SpanKind.Link
           push(kind, label.length > 0 ? label : href, href)
           i = pe + 1
           continue
@@ -413,6 +422,52 @@ export function parseInline(src: string): MdSpan[] {
   return out
 }
 
+class LinkDestination {
+  href: string = ''
+  /** Index of the closing `)`, or -1 when the link is not closed. */
+  end: number = -1
+}
+
+/**
+ * Reads a link destination starting right after `(`. Handles `<path with
+ * spaces>`, parentheses inside the path (`a(1).png`) and an optional title.
+ */
+function readDestination(src: string, from: number): LinkDestination {
+  const d = new LinkDestination()
+  if (src[from] === '<') {
+    const gt = src.indexOf('>', from)
+    const inner = gt > 0 ? src.substring(from + 1, gt) : ''
+    if (gt > 0 && !inner.includes('\n') && !inner.includes('<')) {
+      d.end = src.indexOf(')', gt)
+      d.href = inner
+      return d
+    }
+  }
+  let depth = 0
+  for (let i = from; i < src.length; i++) {
+    const c = src[i]
+    if (c === '\n') {
+      break
+    }
+    if (c === '(') {
+      depth++
+    } else if (c === ')') {
+      if (depth === 0) {
+        d.end = i
+        break
+      }
+      depth--
+    }
+  }
+  if (d.end < 0) {
+    d.end = src.indexOf(')', from)
+  }
+  if (d.end > 0) {
+    d.href = src.substring(from, d.end).trim().split(' ')[0]
+  }
+  return d
+}
+
 function findClose(s: string, open: number): number {
   let depth = 0
   for (let i = open; i < s.length; i++) {
@@ -428,8 +483,9 @@ function findClose(s: string, open: number): number {
   return -1
 }
 
+/** Symbol for a file name, path or reference (`a/b.go:24`). */
 export function fileIconFor(name: string): string {
-  const ext = name.toLowerCase().split('.').pop() ?? ''
+  const ext = parseFileTarget(name).path.toLowerCase().split('.').pop() ?? ''
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'heic', 'bmp'].includes(ext)) {
     return 'picture'
   }
@@ -443,14 +499,4 @@ export function fileIconFor(name: string): string {
     return 'doc_plaintext'
   }
   return 'doc'
-}
-
-export function decodeFileHref(href: string): string {
-  let p = href.startsWith('file://') ? href.substring(7) : href
-  try {
-    p = decodeURIComponent(p)
-  } catch (e) {
-    // Keep as is.
-  }
-  return p.replace(new RegExp('^/([A-Za-z]:/)'), '$1')
 }

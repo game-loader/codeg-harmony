@@ -348,6 +348,13 @@ export class Api {
     return typeof r === 'string' ? r as string : ''
   }
 
+  /** A short-lived address the system browser can download the file from, without the access token. */
+  async browserDownloadUrl(rootPath: string, relPath: string): Promise<string> {
+    const o = asObj(await this.c.send('workspace_download_ticket',
+      { 'rootPath': rootPath, 'path': relPath, 'kind': 'file' }))
+    return `${this.c.baseUrl}${str(o, 'url', `/api/workspace_download/${str(o, 'ticket')}`)}`
+  }
+
   async startVideoPreview(rootPath: string, relPath: string): Promise<string> {
     const o = asObj(await this.c.send('start_video_preview', { 'rootPath': rootPath, 'path': relPath }))
     return str(o, 'token')

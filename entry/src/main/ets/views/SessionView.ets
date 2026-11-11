@@ -1,6 +1,8 @@
 import { Api } from '../net/Api'
 import { SessionController } from '../session/SessionController'
-import { ItemKind, TItem, ImageRef, splitUserResources, UserText } from '../session/Transcript'
+import { ItemKind, TItem, ImageRef, splitUserResources, UserFile, UserText } from '../session/Transcript'
+import { LinkRouter } from '../components/Links'
+import { fileIconFor } from '../components/MarkdownParse'
 import { SessionFailure } from '../session/Interactive'
 import { MarkdownView, copyText } from '../components/Markdown'
 import { ToolCard, PlanList } from '../components/ToolCard'
@@ -47,6 +49,7 @@ export struct ThinkingBlock {
 @ComponentV2
 export struct UserBubble {
   @Param item: TItem = new TItem('', ItemKind.User)
+  @Param rootPath: string = ''
 
   @Computed
   get parts(): UserText {
@@ -65,17 +68,18 @@ export struct UserBubble {
       }
       if (this.parts.files.length > 0) {
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
-          ForEach(this.parts.files, (f: string) => {
+          ForEach(this.parts.files, (f: UserFile) => {
             Row({ space: 5 }) {
-              SymbolGlyph(sym('paperclip')).fontSize(12).fontColor([$r('app.color.accent')])
-              Text(f).fontSize(12).fontColor($r('app.color.text2')).maxLines(1)
+              SymbolGlyph(sym(fileIconFor(f.name))).fontSize(12).fontColor([$r('app.color.accent')])
+              Text(f.name).fontSize(12).fontColor($r('app.color.text2')).maxLines(1)
                 .constraintSize({ maxWidth: 180 }).textOverflow({ overflow: TextOverflow.Ellipsis })
             }
             .padding({ left: 10, right: 10, top: 5, bottom: 5 })
             .margin({ left: 6, bottom: 4 })
             .borderRadius(12)
             .backgroundColor($r('app.color.surface2'))
-          }, (f: string) => f)
+            .onClick(() => LinkRouter.open(f.href, this.rootPath))
+          }, (f: UserFile, i: number) => `${i}-${f.href}`)
         }
       }
       if (this.parts.text.length > 0) {
@@ -223,7 +227,7 @@ export struct SessionView {
   @Builder
   item(it: TItem) {
     if (it.kind === ItemKind.User) {
-      UserBubble({ item: it })
+      UserBubble({ item: it, rootPath: this.rootPath() })
     } else if (it.kind === ItemKind.Text) {
       MarkdownView({ text: it.text, rootPath: this.rootPath() })
         .bindContextMenu(this.textMenu(it.text), ResponseType.LongPress)
