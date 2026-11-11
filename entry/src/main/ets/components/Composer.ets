@@ -5,7 +5,9 @@ import { UploadedAttachment } from '../net/Api'
 import { UploadFile } from '../net/CodegClient'
 import { errorText } from '../net/ApiError'
 import { AgentInfo, ExpertSkill, QuickMessage } from '../model/Models'
-import { ConfigChoice, ConfigOption, ModeOption } from '../session/Interactive'
+import { AgentOptions } from '../session/Interactive'
+import { agentCatalog } from '../session/AgentOptionsModel'
+import { AgentOptionsPanel } from './AgentOptionsPanel'
 import { app } from '../store/AppState'
 import { L, langCode, formatTokens } from '../common/I18n'
 import { sym, toast } from './Common'
@@ -126,17 +128,23 @@ export struct Composer {
       it.value = `${c.agentType === 'codex' ? '$' : '/'}${e.id} `
       items.push(it)
     }
-    if (c.options === null) {
-      await c.loadOptions()
+    // Slash commands: the running session's own list, else the agent's catalog.
+    let known: AgentOptions | null = c.opts.options
+    if (known === null || known.commands.length === 0) {
+      try {
+        known = await agentCatalog(api, c.agentType, c.folder?.path)
+      } catch (e) {
+        // The list is optional.
+      }
     }
-    for (const cmd of c.options?.commands ?? []) {
+    for (const cmd of known?.commands ?? []) {
       if (expertIds.has(cmd)) {
         continue
       }
       const it = new InsertItem()
       it.kind = 'slash'
       it.title = `/${cmd}`
-      it.subtitle = c.options?.commandDescriptions.get(cmd) ?? ''
+      it.subtitle = known?.commandDescriptions.get(cmd) ?? ''
       it.value = `/${cmd} `
       items.push(it)
     }
@@ -230,71 +238,12 @@ export struct Composer {
 
   @Builder
   optionsSheet() {
-    Scroll() {
-      Column({ space: 14 }) {
-        Text(L('Session options', '会话选项')).fontSize(18).fontWeight(FontWeight.Bold).fontColor($r('app.color.text'))
-        if (this.ctrl === null || this.ctrl.options === null) {
-          LoadingProgress().width(28).height(28).color($r('app.color.accent'))
-        } else {
-          if (this.ctrl.options.modes.length > 0) {
-            Text(L('Mode', '模式')).fontSize(12).fontColor($r('app.color.text3'))
-            Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(this.ctrl.options.modes, (m: ModeOption) => {
-                Text(m.name).fontSize(14).padding({ left: 14, right: 14, top: 8, bottom: 8 })
-                  .margin({ right: 8, bottom: 8 }).borderRadius(18)
-                  .fontColor(this.ctrl?.options?.currentMode === m.id ? Color.White : $r('app.color.text'))
-                  .backgroundColor(this.ctrl?.options?.currentMode === m.id ? $r('app.color.accent') :
-                  $r('app.color.surface2'))
-                  .onClick(() => {
-                    this.ctrl?.setMode(m.id)
-                  })
-              }, (m: ModeOption) => m.id)
-            }
-          }
-          ForEach(this.ctrl.options.configs.filter((c: ConfigOption) => c.type === 'select'), (c: ConfigOption) => {
-            Column({ space: 8 }) {
-              Text(c.name).fontSize(12).fontColor($r('app.color.text3'))
-              Flex({ wrap: FlexWrap.Wrap }) {
-                ForEach(c.choices, (ch: ConfigChoice) => {
-                  Text(ch.name).fontSize(14).padding({ left: 14, right: 14, top: 8, bottom: 8 })
-                    .margin({ right: 8, bottom: 8 }).borderRadius(18)
-                    .fontColor(c.current === ch.value ? Color.White : $r('app.color.text'))
-                    .backgroundColor(c.current === ch.value ? $r('app.color.accent') : $r('app.color.surface2'))
-                    .onClick(() => {
-                      this.ctrl?.setConfig(c.id, ch.value)
-                    })
-                }, (ch: ConfigChoice) => ch.value)
-              }
-            }.alignItems(HorizontalAlign.Start).width('100%')
-          }, (c: ConfigOption) => `${c.id}-${c.current}`)
-          if (this.ctrl.options.modes.length === 0 && this.ctrl.options.configs.length === 0) {
-            Text(L('This agent has no selectable options', '该智能体没有可选项')).fontSize(14)
-              .fontColor($r('app.color.text3'))
-          }
-        }
-      }
-      .alignItems(HorizontalAlign.Start)
-      .padding(20)
-      .width('100%')
-    }
-    .width('100%')
-    .height('100%')
-    .align(Alignment.TopStart)
-    .backgroundColor($r('app.color.surface'))
+    AgentOptionsPanel({ ctrl: this.ctrl })
   }
 
+  /** "Model · Mode" of the session, once known. */
   modelLabel(): string {
-    const o = this.ctrl?.options
-    if (o === null || o === undefined) {
-      return ''
-    }
-    const model = o.configs.find((c: ConfigOption) => c.id.includes('model') || c.name.toLowerCase().includes('model'))
-    if (model !== undefined) {
-      const ch = model.choices.find((x: ConfigChoice) => x.value === model.current)
-      return ch?.name ?? model.current
-    }
-    const m = o.modes.find((x: ModeOption) => x.id === o.currentMode)
-    return m?.name ?? ''
+    return this.ctrl?.opts.options?.summary ?? ''
   }
 
   build() {
@@ -381,29 +330,32 @@ export struct Composer {
             preferType: SheetType.CENTER, backgroundColor: $r('app.color.surface')
           })
 
-          Row({ space: 4 }) {
-            Text(agentName(this.ctrl?.agentType ?? '')).fontSize(12).fontColor($r('app.color.text2')).maxLines(1)
-            if (this.modelLabel().length > 0) {
-              Text(`· ${this.modelLabel()}`).fontSize(12).fontColor($r('app.color.text3')).maxLines(1)
-                .constraintSize({ maxWidth: 140 }).textOverflow({ overflow: TextOverflow.Ellipsis })
+          // The options button takes the free width and shortens its label to
+          // fit, so a long model name cannot push the send button off screen.
+          Row() {
+            Row({ space: 4 }) {
+              Text(agentName(this.ctrl?.agentType ?? '')).fontSize(12).fontColor($r('app.color.text2')).maxLines(1)
+              if (this.modelLabel().length > 0) {
+                Text(`· ${this.modelLabel()}`).fontSize(12).fontColor($r('app.color.text3')).maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
+              }
+              SymbolGlyph(sym('chevron_down')).fontSize(11).fontColor([$r('app.color.text3')])
             }
-            SymbolGlyph(sym('chevron_down')).fontSize(11).fontColor([$r('app.color.text3')])
+            .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+            .constraintSize({ maxWidth: '100%' })
+            .borderRadius(16)
+            .clip(true)
+            .backgroundColor($r('app.color.surface2'))
+            .onClick(() => {
+              this.showOptions = true
+              this.ctrl?.loadOptions()
+            })
+            .bindSheet($$this.showOptions, this.optionsSheet(), {
+              detents: [SheetSize.MEDIUM, SheetSize.LARGE], dragBar: true, preferType: SheetType.CENTER,
+              backgroundColor: $r('app.color.surface')
+            })
           }
-          .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-          .borderRadius(16)
-          .backgroundColor($r('app.color.surface2'))
-          .onClick(() => {
-            this.showOptions = true
-            if (this.ctrl !== null && this.ctrl.options === null) {
-              this.ctrl.loadOptions()
-            }
-          })
-          .bindSheet($$this.showOptions, this.optionsSheet(), {
-            height: SheetSize.MEDIUM, dragBar: true, preferType: SheetType.CENTER,
-            backgroundColor: $r('app.color.surface')
-          })
-
-          Blank()
+          .layoutWeight(1)
 
           if (this.ctrl !== null && this.ctrl.contextSize > 0) {
             Text(`${formatTokens(this.ctrl.usedTokens)}/${formatTokens(this.ctrl.contextSize)}`)

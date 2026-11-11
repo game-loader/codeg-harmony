@@ -1,0 +1,201 @@
+{
+ "modes": {
+  "current_mode_id": "auto",
+  "available_modes": [
+   {
+    "id": "default",
+    "name": "Manual",
+    "description": "Always ask before making changes"
+   },
+   {
+    "id": "acceptEdits",
+    "name": "Accept edits",
+    "description": "Automatically accept all file edits"
+   },
+   {
+    "id": "plan",
+    "name": "Plan",
+    "description": "Create a plan before making changes"
+   },
+   {
+    "id": "auto",
+    "name": "Auto",
+    "description": "Claude handles permission decisions"
+   },
+   {
+    "id": "bypassPermissions",
+    "name": "Bypass permissions",
+    "description": "Accepts all permissions"
+   }
+  ]
+ },
+ "config_options": [
+  {
+   "id": "mode",
+   "name": "Mode",
+   "description": "Session permission mode",
+   "category": "mode",
+   "kind": {
+    "type": "select",
+    "current_value": "auto",
+    "options": [
+     {
+      "value": "default",
+      "name": "Manual",
+      "description": "Always ask before making changes"
+     },
+     {
+      "value": "acceptEdits",
+      "name": "Accept edits",
+      "description": "Automatically accept all file edits"
+     },
+     {
+      "value": "plan",
+      "name": "Plan",
+      "description": "Create a plan before making changes"
+     },
+     {
+      "value": "auto",
+      "name": "Auto",
+      "description": "Claude handles permission decisions"
+     },
+     {
+      "value": "bypassPermissions",
+      "name": "Bypass permissions",
+      "description": "Accepts all permissions"
+     }
+    ],
+    "groups": []
+   },
+   "recommended_value": null
+  },
+  {
+   "id": "model",
+   "name": "Model",
+   "description": "AI model to use",
+   "category": "model",
+   "kind": {
+    "type": "select",
+    "current_value": "opus",
+    "options": [
+     {
+      "value": "opus",
+      "name": "Opus 5.5",
+      "description": null
+     },
+     {
+      "value": "fable",
+      "name": "Fable 5.2",
+      "description": null
+     },
+     {
+      "value": "sonnet",
+      "name": "Sonnet 5.5",
+      "description": null
+     },
+     {
+      "value": "haiku",
+      "name": "Haiku 5.5",
+      "description": null
+     }
+    ],
+    "groups": []
+   },
+   "recommended_value": "opus"
+  },
+  {
+   "id": "effort",
+   "name": "Effort",
+   "description": "Available effort levels for this model",
+   "category": "thought_level",
+   "kind": {
+    "type": "select",
+    "current_value": "medium",
+    "options": [
+     {
+      "value": "low",
+      "name": "Low",
+      "description": null
+     },
+     {
+      "value": "medium",
+      "name": "Medium",
+      "description": null
+     },
+     {
+      "value": "high",
+      "name": "High",
+      "description": null
+     },
+     {
+      "value": "xhigh",
+      "name": "Xhigh",
+      "description": null
+     },
+     {
+      "value": "max",
+      "name": "Max",
+      "description": null
+     }
+    ],
+    "groups": []
+   },
+   "recommended_value": "medium"
+  },
+  {
+   "id": "fast",
+   "name": "Fast mode",
+   "description": "Faster responses on supported models",
+   "category": "unknown",
+   "kind": {
+    "type": "select",
+    "current_value": "off",
+    "options": [
+     {
+      "value": "on",
+      "name": "On",
+      "description": null
+     },
+     {
+      "value": "off",
+      "name": "Off",
+      "description": null
+     }
+    ],
+    "groups": []
+   },
+   "recommended_value": null
+  },
+  {
+   "id": "ultracode",
+   "name": "Ultracode",
+   "description": "Dynamic workflows on every task, at any effort level",
+   "category": "unknown",
+   "kind": {
+    "type": "select",
+    "current_value": "off",
+    "options": [
+     {
+      "value": "on",
+      "name": "On",
+      "description": null
+     },
+     {
+      "value": "off",
+      "name": "Off",
+      "description": null
+     }
+    ],
+    "groups": []
+   },
+   "recommended_value": null
+  }
+ ],
+ "available_commands": [],
+ "prompt_capabilities": {
+  "image": true,
+  "audio": false,
+  "embedded_context": true
+ },
+ "unapplied_config_ids": []
+}

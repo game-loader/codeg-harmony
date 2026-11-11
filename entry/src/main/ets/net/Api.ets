@@ -1,5 +1,5 @@
 import { CodegClient, Timeouts, UploadFile } from './CodegClient'
-import { JObj, arr, asArr, asObj, bool, num, obj, str, strArr } from '../common/Json'
+import { JObj, arr, asArr, asObj, bool, isObj, num, obj, str, strArr } from '../common/Json'
 import {
   AgentInfo, ConversationDetail, ConversationSummary, ConversationTag, DirEntry, ExpertSkill,
   FolderDetail, GitBranches, GitLogEntry, GitStatusEntry, GitWorktree, Machine, QuickMessage
@@ -27,6 +27,13 @@ export class UploadedAttachment {
     }
     return 'file://' + encodeURI(p).replace(new RegExp('#', 'g'), '%23').replace(new RegExp('\\?', 'g'), '%3F')
   }
+}
+
+/** Result of `create_chat_conversation`: the new row and the hidden folder the chat runs in. */
+export class ChatCreated {
+  conversationId: number = 0
+  folderId: number = 0
+  folder: FolderDetail | null = null
 }
 
 export class GitCredentials {
@@ -97,10 +104,16 @@ export class Api {
     return typeof r === 'number' ? r as number : num(asObj(r), 'id')
   }
 
-  async createChatConversation(agentType: string, title?: string, paperId?: string): Promise<number[]> {
+  async createChatConversation(agentType: string, title?: string, paperId?: string): Promise<ChatCreated> {
     const o = asObj(await this.c.send('create_chat_conversation',
       body({ 'agentType': agentType, 'title': title, 'academicPaperId': paperId })))
-    return [num(o, 'conversationId', num(o, 'conversation_id')), num(o, 'folderId', num(o, 'folder_id'))]
+    const r = new ChatCreated()
+    r.conversationId = num(o, 'conversationId', num(o, 'conversation_id'))
+    r.folderId = num(o, 'folderId', num(o, 'folder_id'))
+    if (isObj(o['folder'])) {
+      r.folder = FolderDetail.from(o['folder'])
+    }
+    return r
   }
 
   async setPinned(id: number, pinned: boolean): Promise<void> {
@@ -197,20 +210,20 @@ export class Api {
     return id.length > 0 ? id : null
   }
 
-  async sessionSnapshot(connectionId?: string, conversationId?: number): Promise<JObj | null> {
-    try {
-      const r = connectionId !== undefined ?
-        await this.c.call('acp_get_session_snapshot', { 'connectionId': connectionId }) :
-        await this.c.call('acp_get_session_snapshot_by_conversation', { 'conversationId': conversationId ?? 0 })
-      return r === null ? null : asObj(r)
-    } catch (e) {
-      return null
-    }
+  /** The live state of a connection; null when the server no longer has it. */
+  async sessionSnapshot(connectionId: string): Promise<JObj | null> {
+    const r = await this.c.call('acp_get_session_snapshot', { 'connectionId': connectionId })
+    return r === null ? null : asObj(r)
   }
 
-  async describeAgentOptions(agentType: string, workingDir?: string): Promise<JObj> {
+  /**
+   * The modes and options an agent offers a new session. `configValues` are
+   * applied first, as a launch would: pass the model so that the lists that
+   * depend on it (effort levels, fast mode) are the ones for that model.
+   */
+  async describeAgentOptions(agentType: string, workingDir?: string, configValues?: JObj): Promise<JObj> {
     return asObj(await this.c.call('acp_describe_agent_options',
-      body({ 'agentType': agentType, 'workingDir': workingDir }), Timeouts.PROBE))
+      body({ 'agentType': agentType, 'workingDir': workingDir, 'configValues': configValues }), Timeouts.PROBE))
   }
 
   async setMode(connectionId: string, modeId: string): Promise<void> {
@@ -582,13 +595,6 @@ function localized(m: JObj, lang: string, d: string): string {
     }
   }
   return str(m, 'en', str(m, keys[0], d))
-}
-
-export function slashCommandsOf(snapshot: JObj | null): Object[] {
-  if (snapshot === null) {
-    return []
-  }
-  return arr(snapshot, 'available_commands')
 }
 
 export { bool, strArr }

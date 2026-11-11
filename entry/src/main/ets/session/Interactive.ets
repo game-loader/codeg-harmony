@@ -1,4 +1,5 @@
-import { JObj, arr, asObj, bool, num, obj, str } from '../common/Json'
+import { JObj, arr, asObj, bool, isObj, num, obj, str } from '../common/Json'
+import { L } from '../common/I18n'
 import { FileDiff, diffFromStrings, parseUnifiedDiff } from './Diff'
 
 export class PermissionOption {
@@ -143,63 +144,295 @@ export class ModeOption {
 export class ConfigChoice {
   value: string = ''
   name: string = ''
+  description: string = ''
+  /** Heading the choice is listed under; empty when the agent sends a flat list. */
+  group: string = ''
+
+  static of(value: string, name: string): ConfigChoice {
+    const c = new ConfigChoice()
+    c.value = value
+    c.name = name
+    return c
+  }
+
+  static from(v: Object, group: string): ConfigChoice {
+    const o = asObj(v)
+    const c = ConfigChoice.of(str(o, 'value', str(o, 'id')), '')
+    c.name = str(o, 'name', c.value)
+    c.description = str(o, 'description')
+    c.group = group
+    return c
+  }
 }
 
+/** Row key for the session mode, which is set through its own server command. */
+export const MODE_KEY: string = '__mode__'
+
+/** One selectable setting of an agent session: model, effort, permission mode and so on. */
 export class ConfigOption {
   id: string = ''
   name: string = ''
+  description: string = ''
+  category: string = ''
+  /** `select`, `boolean`, or a kind a newer server adds (not listed). */
   type: string = 'select'
   current: string = ''
   choices: ConfigChoice[] = []
+
+  /**
+   * The server nests the control under `kind`:
+   * `{ id, name, category, kind: { type, current_value, options, groups } }`.
+   */
+  static from(v: Object): ConfigOption {
+    const o = asObj(v)
+    const kind = isObj(o['kind']) ? obj(o, 'kind') : o
+    const c = new ConfigOption()
+    c.id = str(o, 'id')
+    c.name = str(o, 'name', c.id)
+    c.description = str(o, 'description')
+    c.category = str(o, 'category')
+    c.type = str(kind, 'type', 'select')
+    if (c.type === 'boolean') {
+      // The server carries an on/off option as the strings "true" / "false".
+      c.current = bool(kind, 'current_value') ? 'true' : 'false'
+      c.choices = [ConfigChoice.of('true', L('On', '开')), ConfigChoice.of('false', L('Off', '关'))]
+      return c
+    }
+    c.current = str(kind, 'current_value')
+    // A grouped select repeats every choice in `options`, so list each one once.
+    const groups = arr(kind, 'groups')
+    if (groups.length > 0) {
+      for (const g of groups) {
+        const go = asObj(g)
+        const title = str(go, 'name', str(go, 'group'))
+        for (const ch of arr(go, 'options')) {
+          c.choices.push(ConfigChoice.from(ch, title))
+        }
+      }
+    } else {
+      for (const ch of arr(kind, 'options')) {
+        c.choices.push(ConfigChoice.from(ch, ''))
+      }
+    }
+    return c
+  }
+
+  has(value: string): boolean {
+    return this.choices.some((c: ConfigChoice) => c.value === value)
+  }
+
+  get usable(): boolean {
+    return this.type === 'boolean' || this.type === 'select' && this.choices.length > 0
+  }
+
+  get currentName(): string {
+    const ch = this.choices.find((c: ConfigChoice) => c.value === this.current)
+    return ch !== undefined ? ch.name : this.current
+  }
+
+  get currentDescription(): string {
+    const ch = this.choices.find((c: ConfigChoice) => c.value === this.current)
+    return ch !== undefined ? ch.description : ''
+  }
+
+  /** Group headings in order; empty when the choices are a flat list. */
+  get groupNames(): string[] {
+    const out: string[] = []
+    for (const c of this.choices) {
+      if (c.group.length > 0 && !out.includes(c.group)) {
+        out.push(c.group)
+      }
+    }
+    return out
+  }
+
+  inGroup(group: string): ConfigChoice[] {
+    return this.choices.filter((c: ConfigChoice) => c.group === group)
+  }
+
+  withCurrent(value: string): ConfigOption {
+    const c = new ConfigOption()
+    c.id = this.id
+    c.name = this.name
+    c.description = this.description
+    c.category = this.category
+    c.type = this.type
+    c.current = value
+    c.choices = this.choices
+    return c
+  }
 }
 
+/**
+ * The mode and options of an agent, from an option catalog
+ * (`acp_describe_agent_options`) or a live session snapshot. Treated as
+ * immutable once shown: a change produces a new object, so views re-render.
+ */
 export class AgentOptions {
   currentMode: string = ''
   modes: ModeOption[] = []
   configs: ConfigOption[] = []
   commands: string[] = []
   commandDescriptions: Map<string, string> = new Map()
+  /** False while a starting connection has not reported its selectors yet. */
+  ready: boolean = true
 
   static from(o: JObj): AgentOptions {
     const a = new AgentOptions()
-    const modes = obj(o, 'modes')
-    a.currentMode = str(modes, 'current_mode_id', str(o, 'current_mode'))
-    for (const m of arr(modes, 'available_modes')) {
+    a.setModes(obj(o, 'modes'))
+    if (a.currentMode.length === 0) {
+      a.currentMode = str(o, 'current_mode')
+    }
+    a.setConfigs(arr(o, 'config_options'))
+    a.setCommands(arr(o, 'available_commands'))
+    a.ready = bool(o, 'selectors_ready', true)
+    return a
+  }
+
+  setModes(state: JObj): void {
+    const list: ModeOption[] = []
+    for (const m of arr(state, 'available_modes')) {
       const mo = asObj(m)
       const mm = new ModeOption()
       mm.id = str(mo, 'id')
       mm.name = str(mo, 'name', mm.id)
       mm.description = str(mo, 'description')
-      a.modes.push(mm)
+      list.push(mm)
     }
-    for (const c of arr(o, 'config_options')) {
-      const co = asObj(c)
-      const cfg = new ConfigOption()
-      cfg.id = str(co, 'id')
-      cfg.name = str(co, 'name', cfg.id)
-      cfg.type = str(co, 'type', 'select')
-      cfg.current = str(co, 'current_value')
-      const pushChoice = (v: Object) => {
-        const vo = asObj(v)
-        const ch = new ConfigChoice()
-        ch.value = str(vo, 'value', str(vo, 'id'))
-        ch.name = str(vo, 'name', ch.value)
-        cfg.choices.push(ch)
-      }
-      arr(co, 'options').forEach(pushChoice)
-      for (const g of arr(co, 'groups')) {
-        arr(asObj(g), 'options').forEach(pushChoice)
-      }
-      a.configs.push(cfg)
-    }
-    for (const c of arr(o, 'available_commands')) {
+    this.modes = list
+    this.currentMode = str(state, 'current_mode_id')
+  }
+
+  setConfigs(list: Object[]): void {
+    this.configs = list.map((v: Object) => ConfigOption.from(v))
+  }
+
+  setCommands(list: Object[]): void {
+    const names: string[] = []
+    const descriptions: Map<string, string> = new Map()
+    for (const c of list) {
       const co = asObj(c)
       const n = str(co, 'name')
       if (n.length > 0) {
-        a.commands.push(n)
-        a.commandDescriptions.set(n, str(co, 'description'))
+        names.push(n)
+        descriptions.set(n, str(co, 'description'))
       }
     }
+    this.commands = names
+    this.commandDescriptions = descriptions
+  }
+
+  copy(): AgentOptions {
+    const a = new AgentOptions()
+    a.currentMode = this.currentMode
+    a.modes = this.modes
+    a.configs = this.configs
+    a.commands = this.commands
+    a.commandDescriptions = this.commandDescriptions
+    a.ready = this.ready
     return a
+  }
+
+  /**
+   * An agent that publishes config options represents its mode among them
+   * (Claude Code and Codex call that option `mode`), so the mode list is shown
+   * on its own only for agents without config options, as the web client does.
+   */
+  get showModes(): boolean {
+    return this.modes.length > 0 && this.configs.length === 0
+  }
+
+  private modeRow(): ConfigOption {
+    const r = new ConfigOption()
+    r.id = MODE_KEY
+    r.name = L('Mode', '模式')
+    r.category = 'mode'
+    r.current = this.currentMode
+    r.choices = this.modes.map((m: ModeOption) => {
+      const c = ConfigChoice.of(m.id, m.name)
+      c.description = m.description
+      return c
+    })
+    return r
+  }
+
+  /** What the options UI lists, in order. */
+  get rows(): ConfigOption[] {
+    const out: ConfigOption[] = []
+    if (this.showModes) {
+      out.push(this.modeRow())
+    }
+    for (const c of this.configs) {
+      if (c.usable) {
+        out.push(c)
+      }
+    }
+    return out
+  }
+
+  row(key: string): ConfigOption | undefined {
+    return this.rows.find((r: ConfigOption) => r.id === key)
+  }
+
+  valueOf(key: string): string {
+    if (key === MODE_KEY) {
+      return this.currentMode
+    }
+    const r = this.row(key)
+    return r !== undefined ? r.current : ''
+  }
+
+  withValue(key: string, value: string): AgentOptions {
+    const a = this.copy()
+    if (key === MODE_KEY) {
+      a.currentMode = value
+    } else {
+      a.configs = this.configs.map((c: ConfigOption) => c.id === key ? c.withCurrent(value) : c)
+    }
+    return a
+  }
+
+  private modelRow(rows: ConfigOption[]): ConfigOption | undefined {
+    return rows.find((r: ConfigOption) => r.id === 'model') ?? rows.find((r: ConfigOption) => r.category === 'model')
+  }
+
+  private permissionRow(rows: ConfigOption[]): ConfigOption | undefined {
+    return rows.find((r: ConfigOption) => r.id === MODE_KEY || r.id === 'mode') ??
+    rows.find((r: ConfigOption) => r.category === 'mode')
+  }
+
+  /** The rows a compact view leads with: the model and the mode (else the first two). */
+  get primaryRows(): ConfigOption[] {
+    const rows = this.rows
+    const ids: string[] = []
+    const model = this.modelRow(rows)
+    if (model !== undefined) {
+      ids.push(model.id)
+    }
+    const mode = this.permissionRow(rows)
+    if (mode !== undefined && !ids.includes(mode.id)) {
+      ids.push(mode.id)
+    }
+    return ids.length > 0 ? rows.filter((r: ConfigOption) => ids.includes(r.id)) : rows.slice(0, 2)
+  }
+
+  get moreRows(): ConfigOption[] {
+    const ids = this.primaryRows.map((r: ConfigOption) => r.id)
+    return this.rows.filter((r: ConfigOption) => !ids.includes(r.id))
+  }
+
+  /** "Model · Mode" for the composer button; empty when the agent reports neither. */
+  get summary(): string {
+    const rows = this.rows
+    const parts: string[] = []
+    const model = this.modelRow(rows)
+    if (model !== undefined && model.currentName.length > 0) {
+      parts.push(model.currentName)
+    }
+    const mode = this.permissionRow(rows)
+    if (mode !== undefined && mode !== model && mode.currentName.length > 0) {
+      parts.push(mode.currentName)
+    }
+    return parts.join(' · ')
   }
 }

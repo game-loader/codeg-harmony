@@ -4,14 +4,14 @@ import { Api, UploadedAttachment } from '../net/Api'
 import { ApiError, errorText } from '../net/ApiError'
 import { EventSocket, EventSocketListener } from '../net/EventSocket'
 import { ConversationSummary, FolderDetail } from '../model/Models'
-import { AppPrefs } from '../store/ServerStore'
 import { L } from '../common/I18n'
 import {
   ImageRef, ItemKind, PlanEntry, TItem, ToolCall, applyToolUpdate, itemsFromTurns, toolFromEvent
 } from './Transcript'
 import {
-  AgentOptions, PermissionRequest, PlanApproval, QuestionRequest, SessionFailure
+  AgentOptions, MODE_KEY, PermissionRequest, PlanApproval, QuestionRequest, SessionFailure
 } from './Interactive'
+import { AgentOptionsModel, SelectorPrefs } from './AgentOptionsModel'
 
 export class PendingImage {
   data: string = ''
@@ -61,10 +61,11 @@ export class SessionController {
   @Trace failures: SessionFailure[] = []
   @Trace usedTokens: number = 0
   @Trace contextSize: number = 0
-  @Trace options: AgentOptions | null = null
   @Trace queued: string[] = []
   @Trace retrying: string = ''
   @Trace version: number = 0
+  /** Mode / model / effort of this session, as the composer shows them. */
+  opts: AgentOptionsModel = new AgentOptionsModel()
   summary: ConversationSummary | null = null
   externalId: string | undefined = undefined
   connectionId: string | null = null
@@ -79,6 +80,11 @@ export class SessionController {
   private liveItems: TItem[] = []
   private historyItems: TItem[] = []
   private disposed: boolean = false
+  private resolving: Promise<void> | null = null
+  private optionsLoad: Promise<void> | null = null
+  private attaching: Promise<boolean> | null = null
+  /** What the agent said about the option change in flight, if it refused it. */
+  private applyError: string = ''
   onListChanged: () => void = () => {
   }
   onSeen: (id: number) => void = (id: number) => {
@@ -113,6 +119,7 @@ export class SessionController {
     this.title = L('New session', '新会话')
     this.items = []
     this.historyItems = []
+    this.loadOptions()
   }
 
   async reloadHistory(): Promise<void> {
@@ -154,7 +161,6 @@ export class SessionController {
     }
     this.connectionId = cid
     await this.ensureAttached()
-    this.loadOptions()
   }
 
   dispose(): void {
@@ -217,9 +223,27 @@ export class SessionController {
     ws.forEach((w: (ok: boolean) => void) => w(ok))
   }
 
-  /** Attaches to the current connection and waits for the snapshot or replay. */
-  private async ensureAttached(): Promise<boolean> {
-    if (this.connectionId === null) {
+  /**
+   * Attaches to the current connection and waits for the snapshot or replay.
+   * Sending and the options sheet can both ask at once; they share one attempt.
+   */
+  private ensureAttached(): Promise<boolean> {
+    if (this.attaching === null) {
+      this.attaching = this.attachShared()
+    }
+    return this.attaching
+  }
+
+  private async attachShared(): Promise<boolean> {
+    try {
+      return await this.attachOnce()
+    } finally {
+      this.attaching = null
+    }
+  }
+
+  private async attachOnce(): Promise<boolean> {
+    if (this.connectionId === null || this.disposed) {
       return false
     }
     if (this.attached && this.socket !== null && this.socket.isOpen) {
@@ -320,6 +344,7 @@ export class SessionController {
     if (this.running) {
       this.markLive()
     }
+    this.opts.adoptLive(AgentOptions.from(s))
     this.rebuild()
   }
 
@@ -436,7 +461,12 @@ export class SessionController {
         this.contextSize = num(e, 'size')
         break
       case 'error':
-        this.error = str(e, 'message')
+        if (this.opts.applying.length > 0 && str(e, 'code').startsWith('set_')) {
+          // The option change in flight was refused; shown next to the options.
+          this.applyError = str(e, 'message')
+        } else {
+          this.error = str(e, 'message')
+        }
         break
       case 'session_failure': {
         const f = SessionFailure.from(obj(e, 'record'))
@@ -479,6 +509,31 @@ export class SessionController {
       case 'plan_approval_resolved':
         this.planApproval = null
         break
+      case 'session_modes':
+        this.opts.liveModes(obj(e, 'modes'))
+        break
+      case 'mode_changed':
+        this.opts.liveMode(str(e, 'mode_id'))
+        break
+      case 'session_config_options':
+        this.opts.liveConfigs(arr(e, 'config_options'))
+        break
+      case 'available_commands':
+        this.opts.liveCommands(arr(e, 'commands'))
+        break
+      case 'selectors_ready':
+        this.opts.liveReady()
+        break
+      case 'config_option_rejected': {
+        const said = L(`${str(e, 'option_name')}: the agent kept "${str(e, 'actual')}" instead of "${str(e, 'requested')}"`,
+          `${str(e, 'option_name')}：智能体没有采用“${str(e, 'requested')}”，仍为“${str(e, 'actual')}”`)
+        if (this.opts.applying.length > 0) {
+          this.applyError = said
+        } else {
+          this.notice = said
+        }
+        break
+      }
       default:
         return
     }
@@ -514,37 +569,45 @@ export class SessionController {
 
   // ---------- sending ----------
 
-  private selectorPrefs(): JObj {
-    try {
-      return asObj(JSON.parse(AppPrefs.get(`selectors.${this.agentType}`, '{}')) as Object)
-    } catch (e) {
-      return {} as JObj
-    }
-  }
-
+  /**
+   * Starts the agent. This device's saved picks ride along: a new session
+   * starts with them, a resumed one keeps its own (the server stores those).
+   */
   private async connect(resume: boolean): Promise<string> {
-    const prefs = this.selectorPrefs()
-    const mode = str(prefs, 'mode')
-    const cfg = obj(prefs, 'config')
+    const prefs = SelectorPrefs.load(this.agentType)
     const id = await this.api.connect(this.agentType, this.folder?.path,
-      resume ? this.externalId : undefined, mode.length > 0 ? mode : undefined,
-      Object.keys(cfg).length > 0 ? cfg : undefined)
+      resume ? this.externalId : undefined, prefs.mode.length > 0 ? prefs.mode : undefined, prefs.configValues)
     this.connectionId = id
     return id
   }
 
-  private async resolveConnection(): Promise<void> {
+  /**
+   * Finds or starts this session's connection. Sending and the options sheet
+   * can both ask at once, so they share one attempt instead of starting two agents.
+   */
+  private resolveConnection(): Promise<void> {
     if (this.connectionId !== null) {
-      return
+      return Promise.resolve()
     }
-    if (this.conversationId > 0) {
-      const found = await this.api.findConnection(this.conversationId, this.agentType, this.externalId)
-      if (found !== null) {
-        this.connectionId = found
-        return
+    if (this.resolving === null) {
+      this.resolving = this.resolveOnce()
+    }
+    return this.resolving
+  }
+
+  private async resolveOnce(): Promise<void> {
+    try {
+      if (this.conversationId > 0) {
+        const found = await this.api.findConnection(this.conversationId, this.agentType, this.externalId)
+        if (found !== null) {
+          this.connectionId = found
+          return
+        }
       }
+      await this.connect(this.externalId !== undefined && this.externalId.length > 0)
+    } finally {
+      this.resolving = null
     }
-    await this.connect(this.externalId !== undefined && this.externalId.length > 0)
   }
 
   private buildBlocks(d: Draft): JObj[] {
@@ -592,7 +655,11 @@ export class SessionController {
             title.length > 0 ? title : undefined, this.paperId)
         } else {
           const r = await this.api.createChatConversation(this.agentType, title.length > 0 ? title : undefined, this.paperId)
-          this.conversationId = r[0]
+          this.conversationId = r.conversationId
+          // The chat runs in the scratch folder the server just made for it.
+          if (r.folder !== null) {
+            this.folder = r.folder
+          }
         }
         this.title = title.length > 0 ? title : this.title
         this.onListChanged()
@@ -723,59 +790,169 @@ export class SessionController {
 
   // ---------- agent options (mode / model) ----------
 
-  async loadOptions(): Promise<void> {
+  /** True while nothing on the server backs this session yet, so picks only apply to its start. */
+  get isUnstarted(): boolean {
+    return this.conversationId <= 0 && this.connectionId === null
+  }
+
+  /**
+   * Loads what the options sheet shows: for a session that has not started,
+   * the agent's catalog under this device's saved picks; otherwise the
+   * session's own settings, read from its agent (started if it is not running).
+   */
+  async loadOptions(force: boolean = false): Promise<void> {
+    if (this.isUnstarted) {
+      await this.opts.prepareDraft(this.api, this.agentType, this.folder?.path, force)
+      return
+    }
+    if (this.optionsLoad === null) {
+      this.optionsLoad = this.loadLiveOptions()
+    }
+    await this.optionsLoad
+  }
+
+  private async loadLiveOptions(): Promise<void> {
     try {
-      let snap: JObj | null = null
+      await this.liveConnection()
+    } catch (e) {
+      this.opts.fail(errorText(e))
+    } finally {
+      this.optionsLoad = null
+    }
+  }
+
+  private static isDead(snap: JObj): boolean {
+    const status = str(snap, 'status')
+    return status === 'error' || status === 'disconnected'
+  }
+
+  /** Finds or starts this session's connection, attaches to it and adopts its settings. */
+  private async liveConnection(): Promise<string> {
+    let snap: JObj | null = this.connectionId !== null ? await this.api.sessionSnapshot(this.connectionId) : null
+    if (snap === null || SessionController.isDead(snap)) {
+      // No connection, or the server reclaimed it (idle agents are stopped
+      // after a few minutes): find a live one or start the agent again.
+      snap = null
       if (this.connectionId !== null) {
-        snap = await this.api.sessionSnapshot(this.connectionId)
-      } else if (this.conversationId > 0) {
-        snap = await this.api.sessionSnapshot(undefined, this.conversationId)
+        this.detachQuietly()
+        this.connectionId = null
+      }
+      this.opts.connecting()
+      await this.resolveConnection()
+    }
+    const cid = this.connectionId
+    if (cid === null || this.disposed) {
+      throw new ApiError(0, 'agent', L('The agent stopped', '智能体已停止'))
+    }
+    // Live updates arrive over the socket. The settings themselves are read
+    // over HTTP below, so a failed attach does not block them.
+    await this.ensureAttached()
+    // A connection reports its modes and options once its session is set up;
+    // resuming a long session can take a while. Waits up to about 90 s.
+    for (let i = 0; i < 100 && !this.disposed; i++) {
+      if (snap === null) {
+        snap = await this.api.sessionSnapshot(cid)
+      }
+      if (snap === null || SessionController.isDead(snap)) {
+        if (this.connectionId === cid) {
+          this.connectionId = null
+        }
+        throw new ApiError(0, 'agent', snap === null ? L('The agent stopped', '智能体已停止') :
+        str(obj(snap, 'last_error'), 'message', L('The agent stopped', '智能体已停止')))
+      }
+      const o = AgentOptions.from(snap)
+      this.opts.adoptLive(o)
+      if (o.ready) {
+        return cid
+      }
+      snap = null
+      await sleep(i < 20 ? 500 : 1000)
+    }
+    throw new ApiError(0, 'timeout', L('The agent did not report its settings', '智能体没有返回它的设置'))
+  }
+
+  /** Changes one setting: `key` is a config option id, or MODE_KEY for the session mode. */
+  async pickOption(key: string, value: string): Promise<void> {
+    const shown = this.opts.options
+    if (shown === null || this.opts.locked || shown.valueOf(key) === value) {
+      return
+    }
+    if (this.isUnstarted) {
+      await this.opts.pick(key, value)
+      return
+    }
+    this.applyError = ''
+    this.opts.setApplying(key)
+    try {
+      const cid = await this.liveConnection()
+      const live = this.opts.options
+      const row = live?.row(key)
+      if (live === null || row === undefined || !row.has(value)) {
+        throw new ApiError(0, 'unavailable', L('This session no longer offers that choice', '当前会话已不提供该选项'))
+      }
+      if (row.current !== value) {
+        this.opts.show(live.withValue(key, value))
+        if (key === MODE_KEY) {
+          await this.api.setMode(cid, value)
+        } else {
+          await this.api.setConfigOption(cid, key, value)
+        }
+        if (await this.settle(cid, key, value)) {
+          SelectorPrefs.remember(this.agentType, key, value)
+        } else {
+          this.opts.reject(this.applyError.length > 0 ? this.applyError :
+          L('The agent did not accept the change', '智能体没有接受这项更改'))
+        }
+      }
+    } catch (e) {
+      await this.refreshLive()
+      this.opts.reject(errorText(e))
+    } finally {
+      this.opts.setApplying('')
+    }
+  }
+
+  /**
+   * The server answers a change as soon as it is queued, so wait until the
+   * session reports the new value. If the agent settles on another value,
+   * show that one and return false.
+   */
+  private async settle(cid: string, key: string, value: string): Promise<boolean> {
+    let last: AgentOptions | null = null
+    for (let i = 0; i < 8; i++) {
+      await sleep(i === 0 ? 250 : 400)
+      let snap: JObj | null = null
+      try {
+        snap = await this.api.sessionSnapshot(cid)
+      } catch (e) {
+        continue
       }
       if (snap === null) {
-        snap = await this.api.describeAgentOptions(this.agentType, this.folder?.path)
+        return false
       }
-      this.options = AgentOptions.from(snap)
+      last = AgentOptions.from(snap)
+      if (last.valueOf(key) === value) {
+        this.opts.adoptLive(last)
+        return true
+      }
+    }
+    if (last !== null) {
+      this.opts.adoptLive(last)
+    }
+    return false
+  }
+
+  private async refreshLive(): Promise<void> {
+    if (this.connectionId === null) {
+      return
+    }
+    try {
+      const snap = await this.api.sessionSnapshot(this.connectionId)
+      if (snap !== null) {
+        this.opts.adoptLive(AgentOptions.from(snap))
+      }
     } catch (e) {
-      // Selectors are optional.
-    }
-  }
-
-  async setMode(modeId: string): Promise<void> {
-    const prefs = this.selectorPrefs()
-    prefs['mode'] = modeId
-    AppPrefs.set(`selectors.${this.agentType}`, JSON.stringify(prefs))
-    if (this.options !== null) {
-      this.options.currentMode = modeId
-      this.version++
-    }
-    if (this.connectionId !== null) {
-      try {
-        await this.api.setMode(this.connectionId, modeId)
-      } catch (e) {
-        this.error = errorText(e)
-      }
-    }
-  }
-
-  async setConfig(configId: string, value: string): Promise<void> {
-    const prefs = this.selectorPrefs()
-    const cfg = obj(prefs, 'config')
-    cfg[configId] = value
-    prefs['config'] = cfg
-    AppPrefs.set(`selectors.${this.agentType}`, JSON.stringify(prefs))
-    if (this.options !== null) {
-      const c = this.options.configs.find((x) => x.id === configId)
-      if (c !== undefined) {
-        c.current = value
-      }
-      this.version++
-    }
-    if (this.connectionId !== null) {
-      try {
-        await this.api.setConfigOption(this.connectionId, configId, value)
-      } catch (e) {
-        this.error = errorText(e)
-      }
+      // Keep what is shown.
     }
   }
 

@@ -34,6 +34,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Logic tests
+        run: test/run.sh
+
       - name: Cache OpenHarmony SDK and hvigor
         uses: actions/cache@v4
         with:

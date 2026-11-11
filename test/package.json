@@ -1,0 +1,9 @@
+{
+  "name": "codeg-harmony-logic-tests",
+  "private": true,
+  "description": "Runs the app's non-UI ArkTS (net/, session/, store/) under Node.",
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "ws": "^8.18.0"
+  }
+}

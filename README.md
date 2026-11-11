@@ -31,10 +31,26 @@ scripts/sign.sh in.hap out.hap  # sign + verify
 Needs JDK 17, Node 20+, curl, unzip and python3. Paths can be overridden with
 `OHOS_TOOLS`, `OHOS_BASE_SDK_HOME`, `HVIGOR_HOME` and `SIGN_DIR`.
 
+## Tests
+
+```bash
+test/run.sh                 # no device, no server needed
+test/run.sh live [agent]    # against a real codeg-server (CODEG_HOST, CODEG_PORT, CODEG_TOKEN)
+```
+
+The non-UI ArkTS (`net/`, `session/`, `store/`) is bundled as TypeScript with the
+HarmonyOS kits replaced by small Node stand-ins (`test/stubs/`), so the same code
+the app ships is what runs. `test/run.sh` checks the mode/model option parser
+against catalogs recorded from a server, and drives `SessionController` against
+a local stand-in server (`test/fake_server.mjs`). `live` runs the same session
+logic against a real server: it starts an agent, changes its settings and
+disconnects, without sending a prompt. Views are not covered.
+
 ## CI
 
-`.github/workflows/build-hap.yml` builds and signs a release HAP on every push
-and pull request and uploads it as the `codeg-harmony-hap` artifact.
+`.github/workflows/build-hap.yml` runs `test/run.sh`, then builds and signs a
+release HAP on every push and pull request and uploads it as the
+`codeg-harmony-hap` artifact.
 
 - Every push to `main` replaces the rolling **latest** release:
   https://github.com/game-loader/codeg-harmony/releases/tag/latest
