@@ -5,7 +5,7 @@ feature set of the codeg iOS client: multiple servers, sessions with live ACP
 streaming, permission / question / plan-approval cards, composer with images,
 files, quick messages, expert skills, slash commands and agent delegation,
 mode/model selectors, projects, file browser and preview (text, Markdown,
-images, video), files referenced in replies (tap to preview, save to the
+images, video, PDF), files referenced in replies (tap to preview, save to the
 device, open in another app), git (changes, commit, push/pull, history, branches), worktrees,
 terminal (xterm.js in ArkWeb), Machines, Academic, Bark notifications and
 agent settings.

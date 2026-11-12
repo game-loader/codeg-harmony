@@ -1,10 +1,12 @@
 import { common, Want, wantConstant } from '@kit.AbilityKit'
 import { fileIo as fs, fileUri, picker } from '@kit.CoreFileKit'
+import { webview } from '@kit.ArkWeb'
 import { app } from '../store/AppState'
 import { DirEntry, FolderDetail } from '../model/Models'
 import { ApiError, errorText } from '../net/ApiError'
 import { copyFileInto, downloadWorkspaceFile, downloadsDir, pruneDownloads } from '../net/Downloads'
 import { mimeFor } from '../session/Attachments'
+import { localFileUrl } from '../session/FileRefs'
 import { L, formatBytes } from '../common/I18n'
 import { EmptyState, IconButton, Loading, sym, toast } from '../components/Common'
 import { CodeBlock, MarkdownView, copyText } from '../components/Markdown'
@@ -14,12 +16,25 @@ const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic']
 // The types the server streams for playback.
 const VIDEO_EXT = ['mp4', 'm4v', 'mov', 'webm', 'ogv', 'ogg', 'mkv', 'avi', 'mpeg', 'mpg', '3gp', '3g2']
 // Known binary types: offered for saving instead of asking the server for text.
-const BINARY_EXT = ['pdf', 'zip', 'gz', 'tgz', 'tar', 'bz2', 'xz', '7z', 'rar', 'hap', 'app', 'apk', 'ipa', 'dmg',
+const BINARY_EXT = ['zip', 'gz', 'tgz', 'tar', 'bz2', 'xz', '7z', 'rar', 'hap', 'app', 'apk', 'ipa', 'dmg',
   'exe', 'bin', 'so', 'dylib', 'dll', 'jar', 'class', 'o', 'a', 'wasm', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'mp3', 'wav', 'flac', 'm4a', 'aac', 'ttf', 'otf', 'woff', 'woff2', 'ico', 'psd', 'sqlite', 'db', 'pyc', 'iso']
 const MAX_IMAGE = 15000000
 // A Text holding megabytes blocks the UI thread; longer files are shown in part.
 const MAX_TEXT = 400000
+
+/** A folder for one server file's local copy, so equal names from different folders stay apart. */
+function cacheFolder(base: string, serverPath: string): string {
+  let h = 0
+  for (let i = 0; i < serverPath.length; i++) {
+    h = (h * 31 + serverPath.charCodeAt(i)) | 0
+  }
+  const dir = `${base}/${(h >>> 0).toString(16)}`
+  if (!fs.accessSync(dir)) {
+    fs.mkdirSync(dir)
+  }
+  return dir
+}
 
 export function extOf(p: string): string {
   return (p.split('.').pop() ?? '').toLowerCase()
@@ -31,8 +46,8 @@ export function relPath(root: string, abs: string): string {
 }
 
 /**
- * Shows one file from the server: text, Markdown, image or video inline, and
- * any file can be saved to the device or handed to another app.
+ * Shows one file from the server: text, Markdown, image, video or PDF inline,
+ * and any file can be saved to the device or handed to another app.
  */
 @ComponentV2
 export struct FilePreview {
@@ -43,8 +58,10 @@ export struct FilePreview {
   @Event onClose: () => void = () => {
   }
   @Local loading: boolean = true
-  /** text | image | video | file (no inline preview; save or open elsewhere) */
+  /** text | image | video | pdf | file (no inline preview; save or open elsewhere) */
   @Local kind: string = ''
+  /** `file://` address of the downloaded copy the PDF viewer shows. */
+  @Local pdfSrc: string = ''
   @Local text: string = ''
   @Local truncated: boolean = false
   @Local imageData: string = ''
@@ -59,6 +76,7 @@ export struct FilePreview {
   @Local total: number = 0
   private videoToken: string = ''
   private controller: VideoController = new VideoController()
+  private web: webview.WebviewController = new webview.WebviewController()
   /** The copy fetched into the app cache, once there is one. */
   private local: string = ''
 
@@ -80,10 +98,13 @@ export struct FilePreview {
     this.truncated = false
     this.imageData = ''
     this.videoUrl = ''
+    this.pdfSrc = ''
+    this.web = new webview.WebviewController()
     this.note = ''
     this.error = ''
     this.rendered = true
     this.local = ''
+    this.transfer = ''
     this.load()
   }
 
@@ -130,6 +151,16 @@ export struct FilePreview {
         this.videoToken = token
         this.videoUrl = api.c.videoUrl(token)
         this.kind = 'video'
+      } else if (ext === 'pdf') {
+        // The system web view renders a PDF from a file in the app sandbox,
+        // so fetch a copy first; the same copy is what Save hands over.
+        const local = await this.fetchLocal()
+        if (path !== this.path) {
+          return
+        }
+        this.transfer = ''
+        this.pdfSrc = localFileUrl(local)
+        this.kind = 'pdf'
       } else if (BINARY_EXT.includes(ext)) {
         this.note = L('This type of file cannot be shown here. Save it, or open it in another app.',
           '这种文件无法在这里显示，可以保存到设备，或用其他应用打开。')
@@ -147,6 +178,7 @@ export struct FilePreview {
       if (path !== this.path) {
         return
       }
+      this.transfer = ''
       if (e instanceof ApiError && (e as ApiError).isNotFound) {
         this.error = L(`The server has no file at ${this.path}`, `服务器上没有这个文件：${this.path}`)
       } else if (errorText(e) === 'Path is not a file') {
@@ -172,9 +204,10 @@ export struct FilePreview {
     if (api === null) {
       throw new ApiError(0, 'network', L('Not connected to a server', '未连接服务器'))
     }
-    const dir = downloadsDir(this.ctx().cacheDir)
-    pruneDownloads(dir)
-    const dest = `${dir}/${this.name}`
+    const path = this.path
+    const base = downloadsDir(this.ctx().cacheDir)
+    pruneDownloads(base)
+    const dest = `${cacheFolder(base, path)}/${this.name}`
     this.received = 0
     this.total = 0
     this.transfer = 'downloading'
@@ -182,13 +215,15 @@ export struct FilePreview {
     await downloadWorkspaceFile(api.c, this.root, this.rel, dest, (got: number, of: number) => {
       // Chunks arrive many times a second; redraw a few times a second.
       const now = Date.now()
-      if (now - shownAt > 150 || got === of) {
+      if (path === this.path && (now - shownAt > 150 || got === of)) {
         shownAt = now
         this.received = got
         this.total = of
       }
     })
-    this.local = dest
+    if (path === this.path) {
+      this.local = dest
+    }
     return dest
   }
 
@@ -289,6 +324,16 @@ export struct FilePreview {
     .width('100%')
   }
 
+  /** The system viewer could not show the PDF: fall back to the file card, with the reason. */
+  private pdfFailed(result: PdfLoadResult): void {
+    this.note = result === PdfLoadResult.PARSE_ERROR_PASSWORD ?
+    L('This PDF is password-protected. Open it in another app that can ask for the password.',
+      '这个 PDF 有密码保护，请用能输入密码的其他应用打开。') :
+    L('This PDF could not be displayed here. Save it, or open it in another app.',
+      '这个 PDF 无法在这里显示，可以保存到设备，或用其他应用打开。')
+    this.kind = 'file'
+  }
+
   /** For a file with no inline preview: what it is, and the two things that can be done with it. */
   @Builder
   fileCard() {
@@ -363,6 +408,18 @@ export struct FilePreview {
           .onError(() => {
             toast(L('This video cannot be played here. Save it, or open it in another app.',
               '这个视频无法在这里播放，可以保存到设备，或用其他应用打开。'))
+          })
+      } else if (this.kind === 'pdf') {
+        // `toolbar=0` hides the viewer's own bar; saving is in the header above.
+        Web({ src: `${this.pdfSrc}#toolbar=0&navpanes=0`, controller: this.web })
+          .fileAccess(true)
+          .domStorageAccess(true)
+          .width('100%')
+          .layoutWeight(1)
+          .onPdfLoadEvent((e: OnPdfLoadEvent) => {
+            if (e.result !== PdfLoadResult.LOAD_SUCCESS) {
+              this.pdfFailed(e.result)
+            }
           })
       } else if (this.kind === 'text') {
         if (this.truncated) {

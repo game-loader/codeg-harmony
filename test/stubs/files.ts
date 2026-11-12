@@ -15,10 +15,11 @@ export const fileIo = {
   accessSync(path: string): boolean { return nfs.existsSync(path) },
   mkdirSync(path: string): void { nfs.mkdirSync(path, { recursive: true }) },
   listFileSync(path: string): string[] { return nfs.readdirSync(path) },
-  statSync(path: string): { size: number, mtime: number } {
+  statSync(path: string): { size: number, mtime: number, isDirectory(): boolean } {
     const s = nfs.statSync(path)
-    return { size: s.size, mtime: Math.floor(s.mtimeMs / 1000) }
+    return { size: s.size, mtime: Math.floor(s.mtimeMs / 1000), isDirectory: () => s.isDirectory() }
   },
+  rmdirSync(path: string): void { nfs.rmdirSync(path) },
   readTextSync(path: string): string { return nfs.readFileSync(path, 'utf8') }
 }
 export const fileUri = { getUriFromPath(p: string): string { return `file://test${p}` } }

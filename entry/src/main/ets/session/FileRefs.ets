@@ -156,6 +156,14 @@ export function isFilePathText(text: string): boolean {
   return slash > 0 && !isWebHost(p.substring(0, slash))
 }
 
+/**
+ * A `file://` address for a file in the app's own storage, for the web view.
+ * Each segment is escaped, so spaces, `#`, `?`, `%` and non-ASCII names work.
+ */
+export function localFileUrl(path: string): string {
+  return 'file://' + path.split('/').map((seg: string) => encodeURIComponent(seg)).join('/')
+}
+
 /** Collapses `.`, `..` and repeated separators in an absolute path. */
 function normalize(abs: string): string {
   const drive = isWindowsDrive(abs) ? abs.substring(0, 2) : ''

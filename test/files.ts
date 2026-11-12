@@ -1,10 +1,11 @@
 // File references in agent replies (recognition, resolution) and the streamed
 // download, run from the app's real .ets sources.
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isFileHref, isFilePathText, parseFileTarget, resolveFile } from '@app/session/FileRefs'
+import { isFileHref, isFilePathText, localFileUrl, parseFileTarget, resolveFile } from '@app/session/FileRefs'
+import { fileURLToPath } from 'node:url'
 import { SpanKind, fileIconFor, parseInline } from '@app/components/MarkdownParse'
 import { splitUserResources } from '@app/session/Transcript'
 import { Api } from '@app/net/Api'
@@ -67,6 +68,11 @@ eq('resolve: file in the filesystem root', rf('/a.txt', '', ''), ['/a.txt', '/',
 eq('resolve: Windows path', rf('C:\\repo\\src\\a.rs:12', 'C:/repo', ''), ['C:/repo/src/a.rs', 'C:/repo', 'src/a.rs', 12])
 eq('resolve: a folder path ending in / has no file', rf('/work/repo/', '', ''), ['/work/repo', '/work', 'repo', 0])
 
+// ---- address handed to the web view for a downloaded PDF ----
+const odd = '/data/storage/el2/base/cache/downloads/1a2b/My Report #3 100% 设计?.pdf'
+eq('pdf: local file address escapes spaces, #, %, ? and CJK', localFileUrl(odd), 'file:///data/storage/el2/base/cache/downloads/1a2b/My%20Report%20%233%20100%25%20%E8%AE%BE%E8%AE%A1%3F.pdf')
+eq('pdf: the address names exactly that file, viewer options included', [fileURLToPath(new URL(localFileUrl(odd) + '#toolbar=0&navpanes=0')), new URL(localFileUrl(odd) + '#toolbar=0&navpanes=0').hash], [odd, '#toolbar=0&navpanes=0'])
+
 // ---- what the transcript renders ----
 const spans = parseInline('See [report](/home/u/out/report.md:3), [docs](docs/a.md), `src/main.rs:51`, `origin/main`, [site](https://x.dev/a.md), [app](www.x.dev) and ![shot](/tmp/s.png).')
 eq('transcript: span kinds', spans.filter(s => s.kind !== SpanKind.Text).map(s => [s.kind, s.text, s.href]), [
@@ -118,11 +124,15 @@ try {
   await copyFileInto(dest, picked)
   check('save: the chosen file ends up identical (old content replaced)', sha(picked) === sha(big))
 
-  const old = join(dir, 'old.zip'); writeFileSync(old, 'x')
+  // Each download has its own sub-folder; old ones go, with their folder, recent ones stay.
   const twoDaysAgo = Date.now() / 1000 - 2 * 86400
-  utimesSync(old, twoDaysAgo, twoDaysAgo)
+  const oldDir = join(dir, 'a1b2'); mkdirSync(oldDir)
+  const old = join(oldDir, 'report.pdf'); writeFileSync(old, 'x'); utimesSync(old, twoDaysAgo, twoDaysAgo)
+  const mixedDir = join(dir, 'c3d4'); mkdirSync(mixedDir)
+  const stale = join(mixedDir, 'old.zip'); writeFileSync(stale, 'x'); utimesSync(stale, twoDaysAgo, twoDaysAgo)
+  const fresh = join(mixedDir, 'report.pdf'); writeFileSync(fresh, 'x')
   pruneDownloads(dir)
-  check('cache: downloads older than a day are removed, recent ones kept', !existsSync(old) && existsSync(dest), readdirSync(dir).join(', '))
+  check('cache: downloads older than a day are removed, recent ones kept', !existsSync(oldDir) && !existsSync(stale) && existsSync(fresh) && existsSync(dest), readdirSync(dir).join(', '))
 
   const url = await new Api(c).browserDownloadUrl(srcDir, 'demo video.mp4')
   check('browser download: a ticket address on the same server', url === `${f.url}/api/workspace_download/tkt123` && f.last('workspace_download_ticket').kind === 'file', url.replace(f.url, '<server>'))

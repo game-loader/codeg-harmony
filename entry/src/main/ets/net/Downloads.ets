@@ -13,14 +13,31 @@ export function downloadsDir(cacheDir: string): string {
   return dir
 }
 
-/** Removes downloads older than a day, so fetched videos do not pile up in the cache. */
+/**
+ * Removes downloads older than a day, so fetched videos do not pile up in the
+ * cache. Each download sits in its own sub-folder of `dir`.
+ */
 export function pruneDownloads(dir: string): void {
   try {
     const cutoff = Date.now() / 1000 - 86400
     for (const name of fs.listFileSync(dir)) {
       const p = `${dir}/${name}`
-      if (fs.statSync(p).mtime < cutoff) {
-        fs.unlinkSync(p)
+      if (!fs.statSync(p).isDirectory()) {
+        if (fs.statSync(p).mtime < cutoff) {
+          fs.unlinkSync(p)
+        }
+        continue
+      }
+      let left = 0
+      for (const inner of fs.listFileSync(p)) {
+        if (fs.statSync(`${p}/${inner}`).mtime < cutoff) {
+          fs.unlinkSync(`${p}/${inner}`)
+        } else {
+          left++
+        }
+      }
+      if (left === 0) {
+        fs.rmdirSync(p)
       }
     }
   } catch (e) {
