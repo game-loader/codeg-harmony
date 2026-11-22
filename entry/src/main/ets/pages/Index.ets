@@ -118,6 +118,7 @@ struct Index {
   disposeSession(): void {
     this.session?.dispose()
     this.session = null
+    app.openSessionId = 0
   }
 
   openConversation(c: ConversationSummary, fromProject: boolean = false): void {
@@ -146,6 +147,7 @@ struct Index {
       s.title = conv.displayTitle
     }
     this.session = s
+    app.openSessionId = s.conversationId > 0 ? s.conversationId : -1
     this.sessionFromProject = fromProject
     s.open(id, folder)
   }
@@ -170,6 +172,7 @@ struct Index {
       this.newPaper = ''
     }
     this.session = s
+    app.openSessionId = s.conversationId > 0 ? s.conversationId : -1
     this.sessionFromProject = this.section === 'projects'
     if (this.section !== 'projects') {
       this.section = 'sessions'

@@ -4,6 +4,7 @@ import { parseFileTarget } from '../session/FileRefs'
 import { LinkRouter } from './Links'
 import { sym, toast } from './Common'
 import { L } from '../common/I18n'
+import { refIconForUri } from '../session/References'
 import { math, MathImage } from './MathRenderer'
 import { normalizeTex, texToRuns, TexRun } from './TexLite'
 import { LengthMetrics } from '@kit.ArkUI'
@@ -89,8 +90,7 @@ export function InlineText(text: string, size: number, color: ResourceColor, wei
           .fontWeight(FontWeight.Medium)
           .onClick(() => LinkRouter.open(s.href, root))
       } else if (s.kind === SpanKind.Ref) {
-        SymbolSpan(sym(s.href.startsWith('codeg://agent') ? 'person' : s.href.startsWith('codeg://session') ?
-          'message' : 'link')).fontSize(size - 1).fontColor([$r('app.color.accent2')])
+        SymbolSpan(sym(refIconForUri(s.href))).fontSize(size - 1).fontColor([$r('app.color.accent2')])
         Span(` ${s.text}`).fontColor($r('app.color.accent2')).fontWeight(FontWeight.Medium)
           .onClick(() => LinkRouter.open(s.href, root))
       } else if (s.kind === SpanKind.Link) {

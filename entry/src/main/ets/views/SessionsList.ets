@@ -1,5 +1,7 @@
 import { app } from '../store/AppState'
 import { Api } from '../net/Api'
+import { RefBus, sessionRef } from '../session/References'
+import { toast } from '../components/Common'
 import { ConversationSummary, FolderDetail } from '../model/Models'
 import { L, relativeTime } from '../common/I18n'
 import { STATUSES, agentName, statusLabel, statusColor } from '../common/Agents'
@@ -191,6 +193,12 @@ export struct SessionsList {
   @Builder
   rowMenu(c: ConversationSummary) {
     Menu() {
+      if (app.openSessionId !== 0 && app.openSessionId !== c.id) {
+        MenuItem({ content: L('Add to current session', '添加到当前会话') }).onClick(() => {
+          RefBus.emit(sessionRef(c))
+          toast(L('Added to the message box', '已添加到输入框'))
+        })
+      }
       MenuItem({ content: L('Rename', '重命名') }).onClick(() => {
         this.renaming = c
         this.renameText = c.title ?? ''

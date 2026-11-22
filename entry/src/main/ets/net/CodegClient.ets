@@ -43,10 +43,25 @@ export class CodegClient {
     this.token = token
   }
 
+  /**
+   * The body is read as a stream and assembled here. The buffered `request()`
+   * path caps a response (5 MB by default, 100 MB at most) and on HarmonyOS
+   * fails large bodies with "http read buffer full"; streamed chunks bypass it.
+   */
   private async once(command: string, body: string, t: Timeouts): Promise<Object | null> {
     const req = http.createHttp()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    let ended = false
+    req.on('dataReceive', (data: ArrayBuffer) => {
+      chunks.push(new Uint8Array(data))
+      size += data.byteLength
+    })
+    req.on('dataEnd', () => {
+      ended = true
+    })
     try {
-      const res = await req.request(`${this.baseUrl}/api/${command}`, {
+      const code = await req.requestInStream(`${this.baseUrl}/api/${command}`, {
         method: http.RequestMethod.POST,
         header: {
           'Authorization': `Bearer ${this.token}`,
@@ -54,16 +69,22 @@ export class CodegClient {
           'Accept': 'application/json'
         },
         extraData: body,
-        expectDataType: http.HttpDataType.STRING,
         connectTimeout: t.connect,
         readTimeout: t.read,
-        usingCache: false,
-        // Default cap is 5 MB; long conversations are several times that.
-        maxLimit: 100 * 1024 * 1024
+        usingCache: false
       })
-      const text = typeof res.result === 'string' ? res.result as string : ''
-      if (res.responseCode < 200 || res.responseCode >= 300) {
-        throw ApiError.fromResponse(res.responseCode, text)
+      // The status can arrive before the last chunks: wait for the end of the
+      // stream, giving up once nothing has arrived for 5 s.
+      let seen = size
+      let idleMs = 0
+      while (!ended && idleMs < 5000) {
+        await sleep(20)
+        idleMs = size === seen ? idleMs + 20 : 0
+        seen = size
+      }
+      const text = decodeUtf8(chunks, size)
+      if (code < 200 || code >= 300) {
+        throw ApiError.fromResponse(code, text.substring(0, 4000))
       }
       return parseJson(text)
     } catch (e) {
@@ -73,6 +94,8 @@ export class CodegClient {
       const err = e as Error
       throw new ApiError(0, 'network', err.message ?? String(e))
     } finally {
+      req.off('dataReceive')
+      req.off('dataEnd')
       req.destroy()
     }
   }
@@ -147,6 +170,16 @@ export class CodegClient {
   videoUrl(token: string): string {
     return `${this.baseUrl}/api/video-preview/${token}`
   }
+}
+
+function decodeUtf8(chunks: Uint8Array[], size: number): string {
+  const all = new Uint8Array(size)
+  let off = 0
+  for (const c of chunks) {
+    all.set(c, off)
+    off += c.byteLength
+  }
+  return util.TextDecoder.create('utf-8').decodeToString(all)
 }
 
 function base64Encode(s: string): string {

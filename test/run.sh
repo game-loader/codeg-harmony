@@ -4,6 +4,7 @@
 #   test/run.sh            option parser, session and file tests against a local stand-in server
 #   test/run.sh live [agent]   the same session logic against a real codeg-server
 #                              (needs CODEG_HOST, CODEG_PORT, CODEG_TOKEN; sends no prompt)
+#   test/run.sh live-history   paged history of the longest sessions on a real codeg-server
 #   test/run.sh live-files     file preview, video stream and download against a real codeg-server
 #                              running on this machine (same variables; only reads files it creates)
 set -euo pipefail
@@ -36,8 +37,11 @@ if [ "${1:-}" = "live" ]; then
   run options_live "${2:-claude_code}"
 elif [ "${1:-}" = "live-files" ]; then
   run files_live
+elif [ "${1:-}" = "live-history" ]; then
+  run history_live
 else
   run options_parse
   run options_session
   run files
+  run references
 fi

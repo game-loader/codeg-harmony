@@ -2,6 +2,7 @@ import { Api } from '../net/Api'
 import { SessionController } from '../session/SessionController'
 import { ItemKind, TItem, ImageRef, splitUserResources, UserFile, UserText } from '../session/Transcript'
 import { LinkRouter } from '../components/Links'
+import { TextSeg, refIconForUri, refSegments } from '../session/References'
 import { fileIconFor } from '../components/MarkdownParse'
 import { SessionFailure } from '../session/Interactive'
 import { MarkdownView, copyText } from '../components/Markdown'
@@ -83,7 +84,19 @@ export struct UserBubble {
         }
       }
       if (this.parts.text.length > 0) {
-        Text(this.parts.text)
+        Text() {
+          ForEach(refSegments(this.parts.text), (g: TextSeg) => {
+            if (g.href.length > 0) {
+              // Reference badge (session / agent / assistant / commit), like the web composer's.
+              SymbolSpan(sym(refIconForUri(g.href))).fontSize(14).fontColor([$r('app.color.user_text')])
+              Span(` ${g.text}`).fontWeight(FontWeight.Bold)
+                .decoration({ type: TextDecorationType.Underline, color: '#88FFFFFF' })
+                .onClick(() => LinkRouter.open(g.href, this.rootPath))
+            } else {
+              Span(g.text)
+            }
+          }, (g: TextSeg, i: number) => `${i}-${g.href}-${g.text}`)
+        }
           .fontSize(15.5)
           .lineHeight(23)
           .fontColor($r('app.color.user_text'))
@@ -286,6 +299,23 @@ export struct SessionView {
           // Long sessions have thousands of items; building them all at once blocks
           // the UI thread long enough for the system to kill the app. Render the
           // latest window and page earlier items in on demand.
+          if (this.ctrl.items.length <= this.windowSize && this.ctrl.turnsOffset > 0) {
+            ListItem() {
+              Row({ space: 8 }) {
+                if (this.ctrl.loadingEarlier) {
+                  LoadingProgress().width(16).height(16).color($r('app.color.accent'))
+                }
+                Text(L('Load earlier messages', '加载更早的消息')).fontSize(13).fontColor($r('app.color.accent'))
+              }
+              .padding(10)
+              .onClick(() => {
+                this.stickToBottom = false
+                this.ctrl?.loadEarlier().then((n: number) => {
+                  this.windowSize += n
+                })
+              })
+            }
+          }
           if (this.ctrl.items.length > this.windowSize) {
             ListItem() {
               Text(L(`Show earlier messages (${this.ctrl.items.length - this.windowSize})`,

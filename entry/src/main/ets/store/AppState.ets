@@ -26,6 +26,8 @@ export class AppState {
   @Trace lastRefresh: number = 0
   /** Conversation id -> when it was last opened here. Bumped to re-render rows. */
   @Trace seenVersion: number = 0
+  /** Conversation open in the detail pane (0 = none); target of "Add to current session". */
+  @Trace openSessionId: number = 0
   private seen: Map<number, number> = new Map()
   private pollTimer: number = -1
   private ctx: common.Context | null = null

@@ -3,7 +3,7 @@ import { JObj, arr, asObj, has, num, obj, str } from '../common/Json'
 import { Api, UploadedAttachment } from '../net/Api'
 import { ApiError, errorText } from '../net/ApiError'
 import { EventSocket, EventSocketListener } from '../net/EventSocket'
-import { ConversationSummary, FolderDetail } from '../model/Models'
+import { ConversationSummary, FolderDetail, MessageTurn } from '../model/Models'
 import { L } from '../common/I18n'
 import {
   ImageRef, ItemKind, PlanEntry, TItem, ToolCall, applyToolUpdate, itemsFromTurns, toolFromEvent
@@ -24,6 +24,9 @@ export class Draft {
   images: PendingImage[] = []
   files: UploadedAttachment[] = []
 }
+
+/** Turns fetched per window; long sessions have hundreds. */
+const TAIL_TURNS = 80
 
 function uuid(): string {
   return util.generateRandomUUID(false)
@@ -79,6 +82,10 @@ export class SessionController {
   private liveTools: Map<string, ToolCall> = new Map()
   private liveItems: TItem[] = []
   private historyItems: TItem[] = []
+  private historyTurns: MessageTurn[] = []
+  /** Index of the first loaded turn in the full history; > 0 means older turns exist. */
+  @Trace turnsOffset: number = 0
+  @Trace loadingEarlier: boolean = false
   private disposed: boolean = false
   private resolving: Promise<void> | null = null
   private optionsLoad: Promise<void> | null = null
@@ -126,7 +133,9 @@ export class SessionController {
     if (this.conversationId <= 0) {
       return
     }
-    const d = await this.api.conversation(this.conversationId)
+    // Refetch the window already on screen (at least the newest TAIL_TURNS turns).
+    const loaded = this.historyTurns.length
+    const d = await this.api.conversation(this.conversationId, Math.max(TAIL_TURNS, loaded + 4))
     this.summary = d.summary
     this.agentType = d.summary.agentType
     this.title = d.summary.displayTitle
@@ -136,9 +145,33 @@ export class SessionController {
       this.usedTokens = d.stats.contextUsed
       this.contextSize = d.stats.contextMax
     }
+    this.historyTurns = d.turns
+    this.turnsOffset = d.turnsOffset
     this.historyItems = itemsFromTurns(d.turns)
     this.rebuild()
     this.onSeen(this.conversationId)
+  }
+
+  /** Prepends the page of turns before the loaded window. Returns how many items were added. */
+  async loadEarlier(): Promise<number> {
+    if (this.conversationId <= 0 || this.turnsOffset <= 0 || this.loadingEarlier) {
+      return 0
+    }
+    this.loadingEarlier = true
+    try {
+      const p = await this.api.conversationTurns(this.conversationId, this.turnsOffset, TAIL_TURNS)
+      const before = this.historyItems.length
+      this.historyTurns = p.turns.concat(this.historyTurns)
+      this.turnsOffset = p.turnsOffset
+      this.historyItems = itemsFromTurns(this.historyTurns)
+      this.rebuild()
+      return this.historyItems.length - before
+    } catch (e) {
+      this.error = errorText(e)
+      return 0
+    } finally {
+      this.loadingEarlier = false
+    }
   }
 
   private rebuild(): void {

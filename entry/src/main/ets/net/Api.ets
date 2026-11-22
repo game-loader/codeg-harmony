@@ -2,7 +2,7 @@ import { CodegClient, Timeouts, UploadFile } from './CodegClient'
 import { JObj, arr, asArr, asObj, bool, isObj, num, obj, str, strArr } from '../common/Json'
 import {
   AgentInfo, ConversationDetail, ConversationSummary, ConversationTag, DirEntry, ExpertSkill,
-  FolderDetail, GitBranches, GitLogEntry, GitStatusEntry, GitWorktree, Machine, QuickMessage
+  FolderDetail, GitBranches, TurnsPage, GitLogEntry, GitStatusEntry, GitWorktree, Machine, QuickMessage
 } from '../model/Models'
 
 export class HealthInfo {
@@ -94,8 +94,15 @@ export class Api {
       .map((v: Object) => ConversationSummary.from(v))
   }
 
-  async conversation(id: number): Promise<ConversationDetail> {
-    return ConversationDetail.from(asObj(await this.c.call('get_folder_conversation', { 'conversationId': id })))
+  /** `tailTurns` asks for only the newest turns; servers without windowing ignore it. */
+  async conversation(id: number, tailTurns?: number): Promise<ConversationDetail> {
+    return ConversationDetail.from(asObj(await this.c.call('get_folder_conversation',
+      body({ 'conversationId': id, 'tailTurns': tailTurns }))))
+  }
+
+  async conversationTurns(id: number, beforeIndex: number, limit: number): Promise<TurnsPage> {
+    return TurnsPage.from(asObj(await this.c.call('get_folder_conversation_turns',
+      { 'conversationId': id, 'beforeIndex': beforeIndex, 'limit': limit })))
   }
 
   async createConversation(folderId: number, agentType: string, title?: string, paperId?: string): Promise<number> {

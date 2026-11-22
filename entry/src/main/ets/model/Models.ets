@@ -178,12 +178,17 @@ export class ConversationDetail {
   summary: ConversationSummary = new ConversationSummary()
   turns: MessageTurn[] = []
   stats?: SessionStats
+  /** Index of turns[0] in the full history (0 when the whole history was sent). */
+  turnsOffset: number = 0
+  turnsTotal: number = 0
 
   static from(v: Object): ConversationDetail {
     const o = asObj(v)
     const d = new ConversationDetail()
     d.summary = ConversationSummary.from(o['summary'])
     d.turns = arr(o, 'turns').map((t: Object) => MessageTurn.from(t))
+    d.turnsOffset = num(o, 'turns_offset')
+    d.turnsTotal = num(o, 'turns_total', d.turnsOffset + d.turns.length)
     if (has(o, 'session_stats')) {
       const s = obj(o, 'session_stats')
       const st = new SessionStats()
@@ -195,6 +200,22 @@ export class ConversationDetail {
       d.stats = st
     }
     return d
+  }
+}
+
+/** One page of older history from get_folder_conversation_turns. */
+export class TurnsPage {
+  turns: MessageTurn[] = []
+  turnsOffset: number = 0
+  turnsTotal: number = 0
+
+  static from(v: Object): TurnsPage {
+    const o = asObj(v)
+    const p = new TurnsPage()
+    p.turns = arr(o, 'turns').map((t: Object) => MessageTurn.from(t))
+    p.turnsOffset = num(o, 'turns_offset')
+    p.turnsTotal = num(o, 'turns_total')
+    return p
   }
 }
 

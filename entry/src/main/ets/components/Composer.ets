@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit'
 import { Draft, PendingImage, SessionController } from '../session/SessionController'
-import { cleanupUpload, pickFiles, pickImages, agentMention } from '../session/Attachments'
+import { cleanupUpload, pickFiles, pickImages } from '../session/Attachments'
 import { UploadedAttachment } from '../net/Api'
 import { UploadFile } from '../net/CodegClient'
 import { errorText } from '../net/ApiError'
@@ -12,6 +12,12 @@ import { app } from '../store/AppState'
 import { L, langCode, formatTokens } from '../common/I18n'
 import { sym, toast } from './Common'
 import { agentName } from '../common/Agents'
+import {
+  MAX_PER_KIND, REF_KINDS, RefBus, RefItem, RefKind, agentRef, commitRef, expandRefs, listAssistants, matches,
+  mentionAt, MentionAt, refKindLabel, searchFiles, sessionRef
+} from '../session/References'
+import { ConversationSummary, GitLogEntry } from '../model/Models'
+import { AgentAvatar } from './Common'
 
 class InsertItem {
   kind: string = ''
@@ -33,6 +39,219 @@ export struct Composer {
   @Local insertLoading: boolean = false
   @Local showOptions: boolean = false
   @Local sending: boolean = false
+  // `@` references (web: composer/suggestion). Tokens like `@Title` stay visible in
+  // the draft and become `[Title](codeg://session/42)` when sent.
+  @Local refs: RefItem[] = []
+  @Local mention: MentionAt = new MentionAt()
+  @Local refTab: RefKind = RefKind.Session
+  @Local fileHits: RefItem[] = []
+  @Local filesLoading: boolean = false
+  @Local assistants: RefItem[] = []
+  @Local commits: RefItem[] = []
+  private caret: number = 0
+  private areaCtl: TextAreaController = new TextAreaController()
+  private fileTimer: number = -1
+  private fileQuery: string = '\u0000'
+  private assistantsLoaded: boolean = false
+  private commitsFor: string = ''
+  private busHandler: (r: RefItem) => void = (r: RefItem) => {
+    this.insertRef(r, -1)
+  }
+
+  aboutToAppear(): void {
+    RefBus.on(this.busHandler)
+  }
+
+  aboutToDisappear(): void {
+    RefBus.off(this.busHandler)
+  }
+
+  get folderRoot(): string {
+    const f = this.ctrl?.folder ?? null
+    return f !== null && !f.isChat ? f.path : ''
+  }
+
+  get mentionOpen(): boolean {
+    return this.mention.start >= 0
+  }
+
+  kindsShown(): RefKind[] {
+    return REF_KINDS.filter((k: RefKind) => {
+      if (k === RefKind.File || k === RefKind.Commit) {
+        return this.folderRoot.length > 0
+      }
+      if (k === RefKind.Assistant) {
+        return this.assistants.length > 0
+      }
+      return true
+    })
+  }
+
+  candidates(): RefItem[] {
+    const q = this.mention.query
+    let list: RefItem[] = []
+    if (this.refTab === RefKind.Session) {
+      list = app.conversations.slice()
+        .sort((a: ConversationSummary, b: ConversationSummary) => b.updatedAt - a.updatedAt)
+        .map((c: ConversationSummary) => sessionRef(c))
+    } else if (this.refTab === RefKind.Agent) {
+      list = app.enabledAgents.map((a: AgentInfo) => agentRef(a.agentType, a.name, a.description))
+    } else if (this.refTab === RefKind.Assistant) {
+      list = this.assistants
+    } else if (this.refTab === RefKind.File) {
+      return this.fileHits.slice(0, MAX_PER_KIND)
+    } else {
+      list = this.commits
+    }
+    return list.filter((r: RefItem) => matches(r, q)).slice(0, MAX_PER_KIND)
+  }
+
+  /** Called on every edit / caret move: opens, updates or closes the `@` panel. */
+  updateMention(): void {
+    let caret = this.text.length
+    try {
+      caret = this.areaCtl.getCaretOffset().index
+    } catch (e) {
+      // Not attached yet.
+    }
+    this.caret = caret
+    const m = mentionAt(this.text, caret)
+    const opening = m.start >= 0 && this.mention.start < 0
+    this.mention = m
+    if (m.start < 0) {
+      return
+    }
+    if (opening) {
+      this.loadLazy()
+    }
+    this.scheduleFileSearch()
+  }
+
+  loadLazy(): void {
+    const api = app.api
+    if (api === null) {
+      return
+    }
+    if (!this.assistantsLoaded) {
+      this.assistantsLoaded = true
+      listAssistants(api).then((a: RefItem[]) => {
+        this.assistants = a
+      })
+    }
+    const root = this.folderRoot
+    if (root.length > 0 && this.commitsFor !== root) {
+      this.commitsFor = root
+      api.gitLog(root, 200).then((log: GitLogEntry[]) => {
+        this.commits = log.map((e: GitLogEntry) => commitRef(root, e))
+      }).catch(() => {
+        this.commits = []
+      })
+    }
+  }
+
+  scheduleFileSearch(): void {
+    const root = this.folderRoot
+    const api = app.api
+    if (root.length === 0 || api === null || this.refTab !== RefKind.File || this.fileQuery === this.mention.query) {
+      return
+    }
+    clearTimeout(this.fileTimer)
+    const q = this.mention.query
+    this.fileTimer = setTimeout((): void => {
+      this.fileQuery = q
+      this.filesLoading = true
+      searchFiles(api, root, q).then((hits: RefItem[]) => {
+        if (q === this.mention.query) {
+          this.fileHits = hits
+        }
+      }).catch(() => {
+        this.fileHits = []
+      }).finally(() => {
+        this.filesLoading = false
+      })
+    }, 180)
+  }
+
+  /** Replaces `@query` (or inserts at the caret when start < 0) with the ref's token. */
+  insertRef(r: RefItem, start: number): void {
+    const from = start >= 0 ? start : Math.min(this.caret, this.text.length)
+    const to = start >= 0 ? Math.min(Math.max(this.caret, start), this.text.length) : from
+    const before = this.text.substring(0, from)
+    const sep = start < 0 && before.length > 0 && !new RegExp('\\s$').test(before) ? ' ' : ''
+    const ins = `${sep}${r.token} `
+    this.text = before + ins + this.text.substring(to)
+    if (!this.refs.some((x: RefItem) => x.uri === r.uri && x.token === r.token)) {
+      this.refs = this.refs.concat([r])
+    }
+    this.mention = new MentionAt()
+    const pos = from + ins.length
+    this.caret = pos
+    setTimeout((): void => {
+      try {
+        this.areaCtl.caretPosition(pos)
+      } catch (e) {
+        // Not attached.
+      }
+    }, 0)
+  }
+
+  @Builder
+  mentionPanel() {
+    Column() {
+      Scroll() {
+        Row({ space: 6 }) {
+          ForEach(this.kindsShown(), (k: RefKind) => {
+            Text(refKindLabel(k)).fontSize(12.5)
+              .padding({ left: 10, right: 10, top: 5, bottom: 5 }).borderRadius(14)
+              .fontColor(this.refTab === k ? Color.White : $r('app.color.text2'))
+              .backgroundColor(this.refTab === k ? $r('app.color.accent') : $r('app.color.surface2'))
+              .onClick(() => {
+                this.refTab = k
+                this.fileQuery = '\u0000'
+                this.scheduleFileSearch()
+              })
+          }, (k: RefKind) => k)
+        }.padding({ left: 10, right: 10, top: 8, bottom: 6 })
+      }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
+
+      if (this.refTab === RefKind.File && this.filesLoading && this.fileHits.length === 0) {
+        LoadingProgress().width(22).height(22).color($r('app.color.accent')).margin(10)
+      } else if (this.candidates().length === 0) {
+        Text(L('No matches', '无匹配项')).fontSize(13).fontColor($r('app.color.text3')).padding(12)
+      } else {
+        List() {
+          ForEach(this.candidates(), (r: RefItem) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                if (r.agent.length > 0) {
+                  AgentAvatar({ agent: r.agent, sz: 26 })
+                } else {
+                  SymbolGlyph(sym(r.kind === RefKind.File ? 'doc' : 'rectangle_split_3x1')).fontSize(18)
+                    .fontColor([$r('app.color.accent')]).width(26)
+                }
+                Column({ space: 1 }) {
+                  Text(r.label).fontSize(14.5).fontColor($r('app.color.text')).maxLines(1)
+                    .fontFamily(r.kind === RefKind.Commit ? 'monospace' : 'HarmonyOS Sans')
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  if (r.detail.length > 0) {
+                    Text(r.detail).fontSize(11.5).fontColor($r('app.color.text3')).maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+              }
+              .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+              .width('100%')
+              .onClick(() => this.insertRef(r, this.mention.start))
+            }
+          }, (r: RefItem) => `${r.kind}-${r.uri}`)
+        }
+        .constraintSize({ maxHeight: 260 })
+        .scrollBar(BarState.Auto)
+      }
+    }
+    .width('100%')
+    .border({ width: { bottom: 0.5 }, color: $r('app.color.border') })
+  }
 
   private ctx(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext
@@ -48,18 +267,23 @@ export struct Composer {
     if (c === null || !this.canSend()) {
       return
     }
+    const raw = this.text
+    const rawRefs = this.refs
     const d = new Draft()
-    d.text = this.text
+    d.text = expandRefs(raw, rawRefs)
     d.images = this.images
     d.files = this.files
     this.text = ''
+    this.refs = []
+    this.mention = new MentionAt()
     this.images = []
     this.files = []
     this.sending = true
     const ok = await c.send(d)
     this.sending = false
     if (!ok) {
-      this.text = d.text
+      this.text = raw
+      this.refs = rawRefs
       this.images = d.images
       this.files = d.files
     }
@@ -156,17 +380,20 @@ export struct Composer {
       it.kind = 'agent'
       it.title = L(`Delegate to ${a.name}`, `委托给 ${a.name}`)
       it.subtitle = a.description
-      it.value = agentMention(a.name, a.agentType)
-      if (it.value.length > 0) {
-        items.push(it)
-      }
+      it.value = a.agentType
+      items.push(it)
     }
     this.insertItems = items
     this.insertLoading = false
   }
 
   applyInsert(it: InsertItem): void {
-    if (it.kind === 'slash' || it.kind === 'expert') {
+    if (it.kind === 'agent') {
+      const a = app.enabledAgents.find((x: AgentInfo) => x.agentType === it.value)
+      if (a !== undefined) {
+        this.insertRef(agentRef(a.agentType, a.name, a.description), -1)
+      }
+    } else if (it.kind === 'slash' || it.kind === 'expert') {
       this.text = it.value + this.text
     } else {
       const sep = this.text.length > 0 && !this.text.endsWith(' ') && !this.text.endsWith('\n') ? ' ' : ''
@@ -306,7 +533,10 @@ export struct Composer {
       }
 
       Column() {
-        TextArea({ text: this.text, placeholder: this.ctrl !== null && this.ctrl.running ?
+        if (this.mentionOpen) {
+          this.mentionPanel()
+        }
+        TextArea({ text: this.text, controller: this.areaCtl, placeholder: this.ctrl !== null && this.ctrl.running ?
           L('Steer the running turn…', '引导当前回合…') : L('Message the agent…', '给智能体发消息…') })
           .fontSize(15.5)
           .backgroundColor(Color.Transparent)
@@ -315,9 +545,41 @@ export struct Composer {
           .enterKeyType(EnterKeyType.NEW_LINE)
           .onChange((v: string) => {
             this.text = v
+            // Drop refs whose token was edited away.
+            if (this.refs.some((r: RefItem) => !v.includes(r.token))) {
+              this.refs = this.refs.filter((r: RefItem) => v.includes(r.token))
+            }
+            this.updateMention()
+          })
+          .onTextSelectionChange((start: number, end: number) => {
+            if (start === end && start !== this.caret) {
+              this.updateMention()
+            }
           })
 
         Row({ space: 4 }) {
+          Button({ type: ButtonType.Circle }) {
+            Text('@').fontSize(17).fontWeight(FontWeight.Medium).fontColor($r('app.color.text2'))
+          }
+          .width(36).height(36).backgroundColor($r('app.color.surface2'))
+          .onClick(() => {
+            // Same as typing `@` at the caret.
+            const at = Math.min(this.caret, this.text.length)
+            const before = this.text.substring(0, at)
+            const lead = before.length > 0 && !new RegExp('\\s$').test(before) ? ' @' : '@'
+            this.text = before + lead + this.text.substring(at)
+            const pos = at + lead.length
+            this.caret = pos
+            this.mention = mentionAt(this.text, pos)
+            this.loadLazy()
+            setTimeout((): void => {
+              try {
+                this.areaCtl.caretPosition(pos)
+              } catch (e) {
+                // Not attached.
+              }
+            }, 0)
+          })
           Button({ type: ButtonType.Circle }) {
             SymbolGlyph(sym('plus')).fontSize(19).fontColor([$r('app.color.text2')])
           }
